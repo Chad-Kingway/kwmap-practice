@@ -41,6 +41,10 @@ npm run dev
 
 API 依據：[實例方法](https://kw3dmap.localking.com.tw/3dmap/api/mapThree/methods)、[3D 模型](https://kw3dmap.localking.com.tw/3dmap/api/mapThree/model)、[新增模型範例](https://kw3dmap.localking.com.tw/3dmap/examples/mapThree/add-3d-model)、[路徑移動範例](https://kw3dmap.localking.com.tw/3dmap/examples/mapThree/model-follow-path)。若官方 loader 回傳 404 或網路失敗，頁面會顯示錯誤；須待官方服務可用，才能進行真實地圖人工測試。
 
+素材校正角度集中在 `test01.js` 的 `INITIAL_ROTATION`，目前為 `{ x: 90, y: 180, z: 0 }`；初始手動車頭角度另由 `INITIAL.heading` 設定。初始化、方向輸入、還原及開始移動前，統一呼叫 `setHeading()`，以 `setRotation({ x: 0, y: 0, z: heading })` 設定相對校正姿態的目標角度，重複輸入不累加，也不重複加入初始 X、Y。手動角度不是絕對地理方位角；勾選「朝向前進方向」時，移動方向交由 SDK 的 `trackHeading` 調整，取消勾選則使用手動角度。校正後的自動朝向仍需在可用 SDK 上人工確認。
+
+環境光尚未接入：官方 mapThree 方法與模型文件未列出光源或可操作場景的介面，取得 1.4.3 loader／渲染實作的請求回傳 404；公開 `@kwmap/mapthree` 套件僅有載入器，無法據此確認光源接入及 Three.js 版本相容性。本機 glTF 使用 PBR 材質且沒有 `KHR_materials_unlit`，但尚未驗證 SDK 執行時的材質與補光效果，因此保留原材質，不新增 Three.js 依賴或無效的補光控制。待確認受支援的光源接入方式後，再加入環境光。
+
 ## 新增 example
 
 1. 新增 `src/examples/popup.js`，提供 `export async function init() { ... }`，在 `#app` 建立該範例需要的 HTML。
@@ -57,3 +61,4 @@ API 依據：[實例方法](https://kw3dmap.localking.com.tw/3dmap/api/mapThree/
 6. 開啟 `/?example=test01`，確認只載入 mapThree 1.4.3、模型請求使用 `/models/car/scene.gltf` 與 `/models/car/scene.bin`。載入前控制停用；完成後調整高度、方向、比例並還原，確認模型與路徑線高度正確，顯示／隱藏路徑線正常。
 7. 設定 3 秒移動，分別勾選與取消「朝向前進方向」；快速連點開始，確認只執行一次，模型設定與開始按鈕停用至完成。完成後可重新開始；移動中測試鏡頭跟隨與解除跟隨。輸入空值、0 秒或超出限制的比例，確認顯示錯誤且未開始移動。
 8. 暫時將本機 `scene.gltf` 或 `scene.bin` 改名並重新整理，確認缺少素材提示與控制停用，測完還原檔名；用 Network 封鎖 SDK loader，確認清楚的 SDK 錯誤。手機寬度下控制面板可捲動且仍能操作地圖。
+9. 確認車子初始校正姿態，連續兩次設定手動車頭角度 90 度，第二次不應再轉 90 度；還原後回到 `INITIAL.heading`。取消自動朝向，以 90 度開始移動，確認姿態與手動設定一致；再勾選自動朝向，確認 SDK 沿路徑轉向時仍保留模型校正姿態。環境光尚未接入，不能宣稱已驗證明暗切換。

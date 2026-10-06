@@ -3,7 +3,9 @@ import { loadSdk } from "../sdk.js";
 import "./test01.css";
 
 const MODEL_URL = "/models/car/scene.gltf";
-const INITIAL = { height: 0, rotation: 0, scale: 10, duration: 10 };
+// 素材的初始姿態校正；只在建立模型時套用，與手動車頭角度分開管理。
+const INITIAL_ROTATION = { x: 90, y: 180, z: 0 };
+const INITIAL = { height: 0, heading: 0, scale: 10, duration: 10 };
 // 第一版使用同一直線上的座標，讓預設曲線移動與顯示的路徑線一致。
 const PATH = [
   [121.561, 25.0334, 0],
@@ -58,8 +60,9 @@ export async function init() {
         <legend>模型設定</legend>
         <label for="test01-height">高度（公尺）</label>
         <input id="test01-height" type="number" min="0" max="500" step="1" value="${INITIAL.height}">
-        <label for="test01-rotation">旋轉方向（度）</label>
-        <input id="test01-rotation" type="number" min="0" max="360" step="1" value="${INITIAL.rotation}">
+        <label for="test01-rotation">手動車頭角度（相對初始姿態，度）</label>
+        <input id="test01-rotation" type="number" min="0" max="360" step="1" value="${INITIAL.heading}" aria-describedby="test01-heading-note">
+        <p id="test01-heading-note" class="test01-note">角度相對於模型校正後的初始姿態，不是絕對地理方位角；重複設定相同角度不會累加。</p>
         <label for="test01-scale">整體比例（初始展示比例為 10）</label>
         <input id="test01-scale" type="number" min="0.1" max="1000" step="0.1" value="${INITIAL.scale}">
         <button id="test01-reset" type="button">還原模型初始設定</button>
@@ -69,6 +72,7 @@ export async function init() {
         <label for="test01-duration">移動時間（秒，1～300）</label>
         <input id="test01-duration" type="number" min="1" max="300" step="1" value="${INITIAL.duration}">
         <label class="test01-check"><input id="test01-heading" type="checkbox" checked>朝向前進方向</label>
+        <p class="test01-note">勾選後，移動時由 SDK 自動調整車頭方向，取代手動角度；取消勾選則使用手動角度。</p>
         <button id="test01-start" type="button">開始沿路徑移動</button>
       </fieldset>
       <fieldset id="test01-view" disabled>
@@ -106,6 +110,10 @@ export async function init() {
     }
     return input.valueAsNumber;
   };
+  const setHeading = (heading) => {
+    // SDK 以建立模型時的校正姿態為基準，設定目標 Z 角度，不累加或重複套用 X、Y。
+    model.setRotation({ x: 0, y: 0, z: heading });
+  };
   const pathAtHeight = () => PATH.map(([lng, lat]) => [lng, lat, number(ui.height)]);
   const updateLine = () => {
     map.three.remove3dObjectById(LINE_ID);
@@ -126,7 +134,7 @@ export async function init() {
     updateLine();
   }));
   ui.rotation.addEventListener("change", action(() => {
-    if (!moving) model.setRotation({ x: 0, y: 0, z: number(ui.rotation) });
+    if (!moving) setHeading(number(ui.rotation));
   }));
   ui.scale.addEventListener("change", action(() => {
     // SDK 以新增模型時的比例為基準，因此將 UI 的整體比例換成相對倍率。
@@ -134,10 +142,11 @@ export async function init() {
   }));
   ui.reset.addEventListener("click", action(() => {
     if (moving) return;
-    for (const key of ["height", "rotation", "scale"]) ui[key].value = INITIAL[key];
+    for (const key of ["height", "scale"]) ui[key].value = INITIAL[key];
+    ui.rotation.value = INITIAL.heading;
     position = [...PATH[0]];
     model.setCoordinates([...position]);
-    model.setRotation({ x: 0, y: 0, z: 0 });
+    setHeading(INITIAL.heading);
     model.setScale(1);
     updateLine();
     status("已還原模型高度、方向、比例與起點位置。");
@@ -157,14 +166,14 @@ export async function init() {
     if (moving) return;
     const duration = number(ui.duration) * 1000;
     const path = pathAtHeight();
-    const rotation = number(ui.rotation);
+    const heading = number(ui.rotation);
     // 先同步鎖定控制，再交給 SDK；只由官方 onEnd 回呼解除移動狀態。
     moving = true;
     syncControls();
     status(`沿路徑移動中（${duration / 1000} 秒）…`);
     try {
       model.setCoordinates([...path[0]]);
-      model.setRotation({ x: 0, y: 0, z: rotation });
+      setHeading(heading);
       model.followPath({
         path, duration, trackHeading: ui.heading.checked,
         onEnd: () => {
@@ -204,7 +213,7 @@ export async function init() {
     let expired = false;
     const loading = map.three.add3dModel({
       id: "test01-model", obj: MODEL_URL, type: "gltf", coordinates: [...PATH[0]],
-      rotation: { x: 0, y: 0, z: 0 }, scale: INITIAL.scale, anchor: "bottom",
+      rotation: { ...INITIAL_ROTATION }, scale: INITIAL.scale, anchor: "bottom",
     }).then((loaded) => {
       // 逾時後才到達的模型不啟用控制，避免畫面與載入狀態不一致。
       if (expired) map.three.remove3dObject(loaded);
@@ -216,6 +225,7 @@ export async function init() {
       expired = true;
       throw error;
     }
+    setHeading(INITIAL.heading);
     updateLine();
     ready = true;
     syncControls();
