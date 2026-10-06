@@ -338,6 +338,7 @@ export async function init() {
       let started = false;
       map.on("style.load", () => {
         if (started) return;
+        map.offLayer("base3d"); // 隱藏底圖的 3D 建築
         started = true;
         resolve();
       });
