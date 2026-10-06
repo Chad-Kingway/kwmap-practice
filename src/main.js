@@ -2,6 +2,10 @@ import "./style.css";
 
 // 範例名稱、選單文字與明確的 module 路徑統一在此登記。
 const examples = {
+  "basic-map": {
+    label: "基本地圖",
+    load: () => import("./examples/basic-map.js"),
+  },
   "message-box": {
     label: "訊息視窗",
     load: () => import("./examples/message-box.js"),
