@@ -11,6 +11,7 @@ const PATH = [
   [121.561, 25.0334, 0],
   [121.563, 25.0334, 0],
   [121.565, 25.0334, 0],
+  [121.567, 25.0340, 0],
 ];
 const LINE_ID = "test01-path";
 
@@ -53,16 +54,14 @@ export async function init() {
     <aside class="test01-panel" aria-label="模型與路徑控制面板">
       <a href="/">← 返回首頁</a>
       <h1>test01：3D 模型與路徑實驗室</h1>
-      <p class="test01-model">預設模型：<code>${MODEL_URL}</code></p>
       <p id="test01-status" role="status" aria-live="polite">正在檢查模型素材…</p>
       <p id="test01-error" role="alert" hidden></p>
       <fieldset id="test01-settings" disabled>
         <legend>模型設定</legend>
         <label for="test01-height">高度（公尺）</label>
         <input id="test01-height" type="number" min="0" max="500" step="1" value="${INITIAL.height}">
-        <label for="test01-rotation">手動車頭角度（相對初始姿態，度）</label>
+        <label for="test01-rotation">手動車頭角度</label>
         <input id="test01-rotation" type="number" min="0" max="360" step="1" value="${INITIAL.heading}" aria-describedby="test01-heading-note">
-        <p id="test01-heading-note" class="test01-note">角度相對於模型校正後的初始姿態，不是絕對地理方位角；重複設定相同角度不會累加。</p>
         <label for="test01-scale">整體比例（初始展示比例為 10）</label>
         <input id="test01-scale" type="number" min="0.1" max="1000" step="0.1" value="${INITIAL.scale}">
         <button id="test01-reset" type="button">還原模型初始設定</button>
@@ -72,7 +71,6 @@ export async function init() {
         <label for="test01-duration">移動時間（秒，1～300）</label>
         <input id="test01-duration" type="number" min="1" max="300" step="1" value="${INITIAL.duration}">
         <label class="test01-check"><input id="test01-heading" type="checkbox" checked>朝向前進方向</label>
-        <p class="test01-note">勾選後，移動時由 SDK 自動調整車頭方向，取代手動角度；取消勾選則使用手動角度。</p>
         <button id="test01-start" type="button">開始沿路徑移動</button>
       </fieldset>
       <fieldset id="test01-view" disabled>
