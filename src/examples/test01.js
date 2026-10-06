@@ -185,9 +185,9 @@ export async function init() {
   try {
     await checkModelAssets();
     status("正在載入官方 mapThree 1.4.3 SDK…");
-    await loadSdk("mapThree");
+    const MapThree = await loadSdk("mapThree");
     status("正在初始化 mapThree 1.4.3 地圖…");
-    map = await withTimeout(new window.mapThree(document.getElementById("map"), {
+    map = await withTimeout(new MapThree(document.getElementById("map"), {
       accessKey, accessToken,
       style: "https://kw3dmap.localking.com.tw/openapi/map/kwmap.etxt",
       center: [121.563, 25.0334], pitch: 60, zoom: 17,
