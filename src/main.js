@@ -1,12 +1,38 @@
 import "./style.css";
 
-// 新增範例時，在此登記明確的 module 路徑。
+// 範例名稱、選單文字與明確的 module 路徑統一在此登記。
 const examples = {
-  "message-box": () => import("./examples/message-box.js"),
-  satellite: () => import("./examples/satellite.js"),
+  "message-box": {
+    label: "訊息視窗",
+    load: () => import("./examples/message-box.js"),
+  },
+  satellite: {
+    label: "衛星影像",
+    load: () => import("./examples/satellite.js"),
+  },
 };
 
-const exampleName = new URLSearchParams(window.location.search).get("example") ?? "message-box";
+const exampleName = new URLSearchParams(window.location.search).get("example");
+const app = document.getElementById("app");
+
+function showHome() {
+  document.title = "3D Map 範例選單";
+  app.innerHTML = `
+    <main class="example-menu">
+      <h1>3D Map 範例選單</h1>
+      <p>請選擇要練習的範例。</p>
+      <nav class="example-menu-links" aria-label="範例選單"></nav>
+    </main>
+  `;
+  const menu = app.querySelector("nav");
+  for (const [name, { label }] of Object.entries(examples)) {
+    const link = document.createElement("a");
+    link.href = `/?example=${encodeURIComponent(name)}`;
+    link.className = "example-menu-button";
+    link.textContent = label;
+    menu.append(link);
+  }
+}
 
 async function loadExample() {
   try {
@@ -14,16 +40,26 @@ async function loadExample() {
       throw new Error(`找不到範例「${exampleName}」。可用範例：${Object.keys(examples).join("、")}`);
     }
 
-    const example = await examples[exampleName]();
+    const example = await examples[exampleName].load();
     await example.init();
   } catch (error) {
+    document.title = "範例載入失敗";
+    const panel = document.createElement("main");
+    panel.className = "example-error";
     const message = document.createElement("p");
-    message.className = "example-error";
     message.setAttribute("role", "alert");
     message.textContent = error.message;
-    document.getElementById("app").replaceChildren(message);
+    const homeLink = document.createElement("a");
+    homeLink.href = "/";
+    homeLink.textContent = "返回首頁";
+    panel.append(message, homeLink);
+    app.replaceChildren(panel);
     console.error("範例載入失敗：", error);
   }
 }
 
-loadExample();
+if (!exampleName) {
+  showHome();
+} else {
+  loadExample();
+}

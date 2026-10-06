@@ -11,16 +11,18 @@ npm install
 npm run dev
 ```
 
-開啟 Vite 顯示的網址，例如 `http://localhost:5173/?example=message-box`。未指定 `example` 時，預設載入 `message-box`。
+開啟 Vite 顯示的網址，例如 `http://localhost:5173/`，從繁體中文首頁選單點選「訊息視窗」或「衛星影像」。未指定 `example` 或參數為空時，只顯示選單，不載入範例 module 或初始化地圖；共用 HTML 仍載入 SDK loader。
+
+也可直接開啟 `/?example=message-box` 或 `/?example=satellite`。選單使用一般 `<a>` 連結，支援重新整理與瀏覽器上一頁；無效名稱顯示錯誤訊息與返回首頁連結。
 
 `npm run build` 產生 `dist/`，可用 `npm run preview` 預覽。SDK 與地圖資料由官方網站載入，需要網路及有效憑證。
 
 ## 檔案與環境變數
 
 - `index.html`：共用 HTML 與官方 SDK loader。
-- `src/main.js`：讀取 query parameter，以明確 mapping 載入 example。
+- `src/main.js`：集中登記範例名稱、顯示文字與載入函式，產生首頁選單並以明確 mapping 載入 example。
 - `src/config.js`：共用憑證設定。
-- `src/style.css`：全螢幕地圖及錯誤訊息樣式。
+- `src/style.css`：全螢幕地圖、錯誤訊息及限定於首頁 class 的選單樣式。
 - `src/examples/message-box.js`：保留官方範例的地圖設定、訊息視窗與 POI 點擊事件。
 - `src/examples/satellite.js` 與 `satellite.css`：衛星影像圖層、工具列與顯示／隱藏按鈕，使用 `/?example=satellite` 開啟。
 
@@ -31,13 +33,13 @@ npm run dev
 ## 新增 example
 
 1. 新增 `src/examples/popup.js`，提供 `export async function init() { ... }`，在 `#app` 建立該範例需要的 HTML。
-2. 在 `src/main.js` 的 `examples` 加入 `"popup": () => import("./examples/popup.js")`。
+2. 在 `src/main.js` 的 `examples` 加入 `popup: { label: "彈跳視窗", load: () => import("./examples/popup.js") }`，首頁也會自動加入連結。
 3. 開啟 `/?example=popup`。切換使用完整頁面重新載入，目前無須額外設計 instance 清理流程。
 
 ## 人工測試
 
-1. 開啟 `/` 與 `/?example=message-box`，確認地圖為全螢幕，中心在臺北 101 附近，出現「開始使用KWMAP !」及原有動畫。
-2. 點擊有名稱與地址的 POI，確認訊息視窗顯示地名及地址；點擊空白區域不新增訊息視窗。
-3. 拖曳、縮放地圖，確認原有操作正常。
-4. 開啟 `/?example=unknown`，確認顯示找不到範例及可用範例名稱。
-5. 開啟 `/?example=satellite`，確認顯示衛星影像及右上角工具列，滑鼠移至齒輪按鈕時出現「顯示/隱藏衛星圖」。點擊一次隱藏影像，再點擊一次恢復；拖曳與縮放後影像仍正常。
+1. 開啟 `/`、`/?example=` 與 `/?example`，確認繁體中文選單與兩個按鈕連結，沒有地圖；開啟開發者工具 Network，確認未請求 `src/examples/` 的 module。手機寬度下按鈕不超出畫面。
+2. 從首頁點「訊息視窗」，確認網址為 `/?example=message-box`，全螢幕地圖出現「開始使用KWMAP !」；點擊 POI 仍顯示地名與地址。
+3. 按瀏覽器上一頁，確認回到首頁，再點「衛星影像」，確認網址為 `/?example=satellite`；工具列 tooltip 與影像顯示／隱藏正常。再按上一頁回到首頁。
+4. 直接貼上兩個範例網址並重新整理，確認不需經過首頁也可正常執行；拖曳、縮放地圖維持正常。
+5. 開啟 `/?example=unknown`，確認錯誤訊息、可用範例名稱及「返回首頁」連結，沒有自動載入地圖；點連結返回首頁。
