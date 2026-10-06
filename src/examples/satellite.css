@@ -1,0 +1,7 @@
+#toolbar {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: fit-content;
+  height: fit-content;
+}

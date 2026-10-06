@@ -3,6 +3,7 @@ import "./style.css";
 // 新增範例時，在此登記明確的 module 路徑。
 const examples = {
   "message-box": () => import("./examples/message-box.js"),
+  satellite: () => import("./examples/satellite.js"),
 };
 
 const exampleName = new URLSearchParams(window.location.search).get("example") ?? "message-box";

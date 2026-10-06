@@ -22,6 +22,9 @@ npm run dev
 - `src/config.js`：共用憑證設定。
 - `src/style.css`：全螢幕地圖及錯誤訊息樣式。
 - `src/examples/message-box.js`：保留官方範例的地圖設定、訊息視窗與 POI 點擊事件。
+- `src/examples/satellite.js` 與 `satellite.css`：衛星影像圖層、工具列與顯示／隱藏按鈕，使用 `/?example=satellite` 開啟。
+
+衛星範例沿用共用的 mapPlus 1.4.3 loader，僅在載入此範例時加入官方指定的 Bootstrap 5.3.1 CSS / bundle 與 Bootstrap Icons 1.10.5 CDN。保留勤崴 logo、國土測繪中心 PHOTO2 圖磚來源及原有 integrity / crossorigin 設定，未新增 npm UI 套件。`style.load` 內仍先關閉 `base3d`，再以原本參數及 `nav_croad11` 參考圖層呼叫 `addLayer`；tooltip 與按鈕事件仍在註冊該回呼之後初始化。
 
 沿用 `vite.config.js` 的 `loadEnv` 與 `define`，只將 `ACCESS_KEY`、`ACCESS_TOKEN` 注入前端。`.env` 不提交 Git，但這些值最終仍可被瀏覽器讀取；建置輸出也含憑證，不能當成真正的 secret 保護機制。
 
@@ -37,3 +40,4 @@ npm run dev
 2. 點擊有名稱與地址的 POI，確認訊息視窗顯示地名及地址；點擊空白區域不新增訊息視窗。
 3. 拖曳、縮放地圖，確認原有操作正常。
 4. 開啟 `/?example=unknown`，確認顯示找不到範例及可用範例名稱。
+5. 開啟 `/?example=satellite`，確認顯示衛星影像及右上角工具列，滑鼠移至齒輪按鈕時出現「顯示/隱藏衛星圖」。點擊一次隱藏影像，再點擊一次恢復；拖曳與縮放後影像仍正常。
