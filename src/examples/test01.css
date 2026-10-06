@@ -28,6 +28,10 @@
 .test01-model, .test01-note { color: #526075; font-size: 12px; overflow-wrap: anywhere; }
 #test01-status { padding: 10px; background: #edf4ff; border-radius: 6px; }
 #test01-error { padding: 10px; color: #9f1239; background: #fff1f2; border-radius: 6px; overflow-wrap: anywhere; }
+#test01-route-status { padding: 10px; background: #ecfdf5; border-radius: 6px; overflow-wrap: anywhere; }
+.test01-route-marker { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 2px solid white; border-radius: 50%; box-shadow: 0 2px 6px #0005; color: white; font: bold 16px sans-serif; }
+.test01-route-origin { background: #15803d; }
+.test01-route-end { background: #be123c; }
 @media (max-width: 600px) {
   .test01-panel { top: auto; bottom: 12px; left: 12px; width: calc(100% - 24px); max-height: 48dvh; padding: 12px; }
 }
