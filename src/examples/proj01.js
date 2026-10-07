@@ -72,9 +72,9 @@ export async function init() {
       <p id="proj01-route-status" role="status" aria-live="polite">尚未規劃路線。</p>
       <fieldset id="proj01-settings" disabled>
         <legend>模型設定</legend>
-        <label for="proj01-height">高度（公尺）</label>
+        <label for="proj01-height">高度</label>
         <input id="proj01-height" type="number" min="0" max="500" step="1" value="${INITIAL.height}">
-        <label for="proj01-scale">整體比例（初始展示比例為 10）</label>
+        <label for="proj01-scale">整體比例</label>
         <input id="proj01-scale" type="number" min="0.1" max="1000" step="0.1" value="${INITIAL.scale}">
         <button id="proj01-reset" type="button">還原模型初始設定</button>
       </fieldset>
