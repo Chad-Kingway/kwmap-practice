@@ -9,6 +9,7 @@ import { geographicBearing, initialPathBearing, modelRotationFromBearing, instal
 async function setup() {
   const nodes = new Map(), timers = new Map(), queries = [], markers = [], lines = new Map(), frames = new Map();
   const camera = { locks: 0, releases: 0 };
+  const renderedLines = new Map();
   let instance;
   let nextTimer = 0;
   const node = (id) => {
@@ -69,6 +70,10 @@ async function setup() {
     on(event, callback) { if (event === "style.load") callback(); else this.click = callback; }
     off(event, callback) { if (event === "click" && this.click === callback) this.click = null; }
     offLayer() {} jumpTo() {}
+    redraw() {
+      renderedLines.clear();
+      for (const [id, line] of lines) renderedLines.set(id, line);
+    }
     decodePolyline(encoded) { return JSON.parse(encoded); }
   }
   const context = vm.createContext({
@@ -87,7 +92,7 @@ async function setup() {
     start_location: { lng: points[0][0], lat: points[0][1] },
     end_location: { lng: points.at(-1)[0], lat: points.at(-1)[1] },
   }] }] }];
-  return { ui, nodes, timers, queries, markers, lines, model, result, camera, frames,
+  return { ui, nodes, timers, queries, markers, lines, renderedLines, model, result, camera, frames,
     click: (lng, lat, overrides = {}) => instance.click({ lngLat: { lng, lat }, originalEvent: { button: 0, target: node("map"), ...overrides } }),
     frame: () => { const batch = [...frames.values()]; frames.clear(); for (const fn of batch) fn(); },
     plan: () => ui("plan").handlers.click() };
@@ -128,9 +133,11 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   h.ui("path").checked = false;
   h.ui("path").handlers.change();
   assert.equal(h.lines.size, 0);
+  assert.equal(h.renderedLines.size, 0, "關閉路線後畫面立即清除");
   h.ui("path").checked = true;
   h.ui("path").handlers.change();
   assert.equal(h.lines.size, 1);
+  assert.deepEqual([...h.renderedLines], [...h.lines], "新增路線完成後才重繪，不需要鏡頭操作");
   h.queries[2].callback([], "OK");
   await noRoute;
   assert.match(h.ui("route-status").textContent, /無可用路線.*保留/);

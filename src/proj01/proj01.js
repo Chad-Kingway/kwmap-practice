@@ -255,6 +255,8 @@ export async function init() {
     if (ui.path.checked && activePath.length >= 2) {
       map.three.add3dLine({ id: lineId, coordinates: groundPath(), color: "#ff7a18", width: 5 });
     }
+    // 物件更新完成後主動重繪，避免重新顯示路線時等到鏡頭操作才更新畫面。
+    map.redraw();
   };
   const action = (fn) => () => {
     if (!ready) return;
