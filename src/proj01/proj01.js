@@ -2,6 +2,7 @@ import { accessKey, accessToken } from "../config.js";
 import { loadSdk } from "../sdk.js";
 import { normalizeDirections, validateEndpoints, parseCoordinate } from "./proj01-route.js";
 import { geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix } from "./proj01-heading.js";
+import { mountRequestList } from "./proj01-requests.js";
 import "./proj01.css";
 
 const MODEL_URL = "/models/car/scene.gltf";
@@ -18,6 +19,7 @@ const FOLLOW_DRAG_THRESHOLD = 5;
 let disposePanelWheel;
 let disposeMapDrag;
 let disposeMapPick;
+let disposeRequests;
 
 async function checkModelAssets() {
   const response = await fetch(MODEL_URL, { signal: AbortSignal.timeout(15000) });
@@ -55,6 +57,7 @@ export async function init() {
   disposePanelWheel?.();
   disposeMapDrag?.();
   disposeMapPick?.();
+  disposeRequests?.();
   document.title = "proj01：3D 模型與路徑實驗室";
   const app = document.getElementById("app");
   app.innerHTML = `
@@ -64,6 +67,10 @@ export async function init() {
       <h1>proj01：3D 模型與路徑實驗室</h1>
       <p id="proj01-status" role="status" aria-live="polite">正在檢查模型素材…</p>
       <p id="proj01-error" role="alert" hidden></p>
+      <fieldset class="proj01-requests">
+        <legend>需求管理</legend>
+        <div id="proj01-request-list"></div>
+      </fieldset>
       <details class="proj01-vehicle" open>
         <summary class="proj01-vehicle-summary">車輛 01</summary>
         <fieldset id="proj01-vehicle-controls" class="proj01-vehicle-controls" disabled>
@@ -104,6 +111,8 @@ export async function init() {
     </div>
   `;
   const panel = document.getElementById("proj01-panel");
+  const requestList = mountRequestList(document.getElementById("proj01-request-list"));
+  disposeRequests = requestList.dispose;
   // 已查驗 SDK 跟隨以 window 的冒泡 wheel 調整縮放；只隔離面板，保留原生捲動。
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });

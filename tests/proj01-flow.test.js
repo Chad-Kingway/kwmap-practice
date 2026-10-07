@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import { mountRequestList } from "../src/proj01/proj01-requests.js";
 import { normalizeDirections, validateEndpoints, parseCoordinate } from "../src/proj01/proj01-route.js";
 import { geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix } from "../src/proj01/proj01-heading.js";
 
@@ -11,6 +12,7 @@ async function setup() {
   const camera = { locks: 0, releases: 0 };
   const renderedLines = new Map();
   let instance;
+  let requestList;
   let nextTimer = 0;
   const node = (id) => {
     if (!nodes.has(id)) nodes.set(id, {
@@ -81,6 +83,7 @@ async function setup() {
     document: { getElementById: node, createElement: () => ({}) }, window: Object.assign(node("window"), { location: { origin: "http://localhost" } }),
     fetch: async () => ({ ok: true, headers: { get: () => "model/gltf+json" }, json: async () => ({ asset: { version: "2.0" } }) }),
     AbortSignal, loadSdk: async () => SDK, accessKey: "測試", accessToken: "測試",
+    mountRequestList: (container) => (requestList = mountRequestList(container)),
     normalizeDirections, validateEndpoints, parseCoordinate, geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix,
     setTimeout: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => { const id = ++nextTimer; frames.set(id, fn); return id; }, cancelAnimationFrame: (id) => frames.delete(id),
@@ -93,7 +96,7 @@ async function setup() {
     start_location: { lng: points[0][0], lat: points[0][1] },
     end_location: { lng: points.at(-1)[0], lat: points.at(-1)[1] },
   }] }] }];
-  return { ui, nodes, timers, queries, markers, lines, renderedLines, model, result, camera, frames,
+  return { ui, nodes, timers, queries, markers, lines, renderedLines, model, result, camera, frames, requestList,
     click: (lng, lat, overrides = {}) => instance.click({ lngLat: { lng, lat }, originalEvent: { button: 0, target: node("map"), ...overrides } }),
     frame: () => { const batch = [...frames.values()]; frames.clear(); for (const fn of batch) fn(); },
     plan: () => ui("plan").handlers.click() };
@@ -412,4 +415,43 @@ test("合併座標輸入驗證後才送出查詢，比例只在套用時更新",
   h.ui("duration").value = "12";
   h.ui("start").handlers.click();
   assert.equal(h.model.playback.duration, 12000);
+});
+
+test("需求選取與重繪保留唯一識別碼，不改變車輛、鏡頭或路線", async () => {
+  const h = await setup();
+  const list = h.ui("request-list");
+  const select = (id, checked = true) => list.handlers.change({ target: { type: "radio", name: "proj01-request", value: id, checked } });
+  assert.equal(h.requestList.selectedRequestId, null);
+  const pending = h.plan();
+  select("request-02");
+  assert.equal(h.requestList.selectedRequestId, "request-02", "查詢時需求仍可操作");
+  h.queries[0].callback(h.result([[121.561, 25.0334], [121.562, 25.034]]), "OK");
+  await pending;
+  h.ui("follow").handlers.click(); h.frame();
+  h.ui("start").handlers.click(); h.frame();
+  const before = { origin: h.ui("origin").value, destination: h.ui("destination").value,
+    position: [...h.model.coordinates], rotations: [...h.model.rotations], playback: h.model.playback,
+    lines: [...h.lines], markers: [...h.markers], camera: { ...h.camera }, frames: [...h.frames] };
+  select("request-01"); select("request-01");
+  select("request-01", false); select("invalid");
+  assert.equal(h.requestList.selectedRequestId, "request-01");
+  h.requestList.render();
+  assert.match(list.innerHTML, /value="request-01" checked/);
+  assert.equal((list.innerHTML.match(/ checked/g) ?? []).length, 1);
+  select("request-03"); h.requestList.render();
+  assert.equal(h.requestList.selectedRequestId, "request-03");
+  assert.match(list.innerHTML, /value="request-03" checked/);
+  assert.equal(h.queries.length, 1);
+  assert.equal(h.ui("origin").value, before.origin);
+  assert.equal(h.ui("destination").value, before.destination);
+  assert.deepEqual(h.model.coordinates, before.position);
+  assert.deepEqual(h.model.rotations, before.rotations);
+  assert.equal(h.model.playback, before.playback);
+  assert.equal(h.model.playing, true);
+  assert.deepEqual([...h.lines], before.lines);
+  assert.deepEqual(h.markers, before.markers);
+  assert.deepEqual(h.camera, before.camera);
+  assert.deepEqual([...h.frames], before.frames);
+  h.requestList.dispose();
+  assert.equal(list.listeners.change.size, 0);
 });
