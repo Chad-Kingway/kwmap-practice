@@ -86,10 +86,8 @@ export async function init() {
                 <button id="proj01-select-destination" type="button" aria-pressed="false" aria-describedby="proj01-pick-status">選取終點</button>
               </div>
               <button id="proj01-plan" type="button">規劃汽車路線</button>
-              <p id="proj01-pick-status" class="proj01-note" role="status" aria-live="polite">可手動輸入經緯度，或按選取按鈕後在地圖左鍵點選。再次按同一按鈕或 Escape 取消。</p>
             </div>
             <label class="proj01-check"><input id="proj01-path" type="checkbox" checked>顯示規劃路線</label>
-            <p id="proj01-route-status" role="status" aria-live="polite">尚未規劃路線。</p>
           </section>
           <section id="proj01-settings" class="proj01-vehicle-section" aria-labelledby="proj01-settings-title">
             <h2 id="proj01-settings-title" class="proj01-section-title">模型設定</h2>
@@ -118,7 +116,7 @@ export async function init() {
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });
   disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
-  const ui = Object.fromEntries(["status", "error", "vehicle-controls", "scale", "reset", "duration", "start", "path", "follow", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan", "select-origin", "select-destination", "pick-status"]
+  const ui = Object.fromEntries(["status", "error", "vehicle-controls", "scale", "reset", "duration", "start", "path", "follow", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan", "select-origin", "select-destination"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   let model;
@@ -306,7 +304,6 @@ export async function init() {
   let pickClickAllowed = false;
   const resetPickGesture = () => { pickGesture = null; pickClickAllowed = false; };
   const cancelPick = (message = "已取消選點；可手動輸入或重新選取。") => {
-    if (pickMode) ui["pick-status"].textContent = message;
     pickMode = null;
     resetPickGesture();
     mapElement.classList.remove("proj01-picking");
@@ -369,7 +366,6 @@ export async function init() {
       resetPickGesture();
       pickMode = endpoint;
       mapElement.classList.add("proj01-picking");
-      ui["pick-status"].textContent = `請在地圖上點選${endpoint === "origin" ? "起點" : "終點"}`;
       syncControls();
     }));
   }
@@ -413,14 +409,12 @@ export async function init() {
       destination = [number(ui["destination-lng"]), number(ui["destination-lat"])];
       validateEndpoints(origin, destination);
     } catch (error) {
-      ui["route-status"].textContent = "查詢未送出，請修正起終點。";
       showError(error);
       return;
     }
     const request = ++queryVersion;
     routing = true;
     syncControls();
-    ui["route-status"].textContent = "正在規劃 DRIVING 汽車路線…";
     try {
       const response = new Promise((resolve, reject) => {
         // 實際 SDK 的回呼傳入候選陣列與狀態，並另回傳 Promise；同時處理其拒絕。
@@ -429,18 +423,12 @@ export async function init() {
       });
       const { candidates, routeStatus } = await withTimeout(response, 20000, "路線查詢逾時，請重試；遲到的回應不會取代目前路線。");
       if (request !== queryVersion) return;
-      if (routeStatus === "OK" && Array.isArray(candidates) && !candidates.length) {
-        ui["route-status"].textContent = `無可用路線（${routeStatus}）。${activePath.length ? "保留上一條成功路線。" : "尚無有效路線可播放。"}`;
-        return;
-      }
       if (routeStatus !== "OK") throw new Error(`路線服務回傳失敗狀態：${String(routeStatus)}。`);
       const data = normalizeDirections(candidates, (encoded) => map.decodePolyline(encoded));
       installRoute(data, request);
-      ui["route-status"].textContent = `規劃成功：${data.summary}，${data.coordinates.length} 個幾何點；選用 ${data.candidates} 條候選中的第一條。請另按開始播放。`;
       status("模型已移到道路路線起點並朝向起始前進方向，尚未開始移動。");
     } catch (error) {
       if (request !== queryVersion) return;
-      ui["route-status"].textContent = `查詢失敗。${activePath.length ? "保留上一條成功路線。" : "尚無有效路線可播放。"}`;
       showError(error);
     } finally {
       if (request === queryVersion) {
@@ -553,8 +541,8 @@ export async function init() {
     // 已查驗 mapThree 1.4.3 會提供此服務，直接使用目前地圖，不另外載入 mapPlus。
     if (typeof sdk.DirectionsService === "function") {
       try { directions = new sdk.DirectionsService(map); }
-      catch (error) { ui["route-status"].textContent = `路線服務初始化失敗：${error.message}`; }
-    } else ui["route-status"].textContent = "目前 SDK 未提供 DirectionsService，無法規劃路線。";
+      catch (error) {  }
+    }
     let expired = false;
     const loading = map.three.add3dModel({
       id: "proj01-model", obj: MODEL_URL, type: "gltf", coordinates: [...DEFAULT_ORIGIN, 0],
