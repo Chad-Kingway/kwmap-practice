@@ -27,7 +27,7 @@ npm run dev
 - `src/examples/basic-map.js`：基本地圖，沿用共用憑證、loader 與樣式，初始中心點為 `[121.53559860212545, 25.029308142529132]`，縮放級別為 14，範圍為 7～18。
 - `src/examples/message-box.js`：保留官方範例的地圖設定、訊息視窗與 POI 點擊事件。
 - `src/examples/satellite.js` 與 `satellite.css`：衛星影像圖層、工具列與顯示／隱藏按鈕，使用 `/?example=satellite` 開啟。
-- `src/examples/proj01.js` 與 `proj01.css`：3D 模型與路徑實驗室，獨立載入 mapThree 1.4.3；既有範例維持 mapPlus 1.4.3，每次頁面只載入一種 SDK。
+- `src/proj01/proj01.js` 與 `proj01.css`：3D 模型與路徑實驗室，獨立載入 mapThree 1.4.3；既有範例維持 mapPlus 1.4.3，每次頁面只載入一種 SDK。
 
 衛星範例沿用共用的 mapPlus 1.4.3 loader，僅在載入此範例時加入官方指定的 Bootstrap 5.3.1 CSS / bundle 與 Bootstrap Icons 1.10.5 CDN。保留勤崴 logo、國土測繪中心 PHOTO2 圖磚來源及原有 integrity / crossorigin 設定，未新增 npm UI 套件。`style.load` 內仍先關閉 `base3d`，再以原本參數及 `nav_croad11` 參考圖層呼叫 `addLayer`；tooltip 與按鈕事件仍在註冊該回呼之後初始化。
 
@@ -45,7 +45,7 @@ npm run dev
 
 畫線、移動、還原、重播及鏡頭方向共用同一份有效路線；替換成功後移除舊線與舊標記。Z 值統一使用目前模型高度，並非服務提供的道路或橋梁高度。SDK 實作使用 `CatmullRomCurve3`，明確指定受支援的 `curveOptions: { closed: false, curveType: "catmullrom", tension: 0 }`；已對實際 18 點路線採樣 2,001 點，確認曲線沿原線段而未切角。這仍是展示動畫：速度不保證均勻，轉彎可能較突然，秒數不代表真實行車時間，道路貼合程度也受服務幾何精度限制。
 
-路線 API 參考：[服務說明](https://kw3dmap.localking.com.tw/3dmap/api/other-service/directions-service/info)、[route 方法](https://kw3dmap.localking.com.tw/3dmap/api/other-service/directions-service/methods)。資料整理在 `src/examples/proj01-route.js`；可執行 `node --test tests/*.test.js` 檢查座標驗證、路段連接、繞行保留、查詢逾時及過期回應、路線替換與播放期間控制。
+路線 API 參考：[服務說明](https://kw3dmap.localking.com.tw/3dmap/api/other-service/directions-service/info)、[route 方法](https://kw3dmap.localking.com.tw/3dmap/api/other-service/directions-service/methods)。資料整理在 `src/proj01/proj01-route.js`；可執行 `node --test tests/*.test.js` 檢查座標驗證、路段連接、繞行保留、查詢逾時及過期回應、路線替換與播放期間控制。
 
 API 依據：[實例方法](https://kw3dmap.localking.com.tw/3dmap/api/mapThree/methods)、[3D 模型](https://kw3dmap.localking.com.tw/3dmap/api/mapThree/model)、[新增模型範例](https://kw3dmap.localking.com.tw/3dmap/examples/mapThree/add-3d-model)、[路徑移動範例](https://kw3dmap.localking.com.tw/3dmap/examples/mapThree/model-follow-path)。若官方 loader 回傳 404 或網路失敗，頁面會顯示錯誤；須待官方服務可用，才能進行真實地圖人工測試。
 
@@ -69,7 +69,7 @@ API 依據：[實例方法](https://kw3dmap.localking.com.tw/3dmap/api/mapThree/
 
 ## 人工測試
 
-1. 開啟 `/`、`/?example=` 與 `/?example`，確認繁體中文選單與四個按鈕連結，沒有地圖；開啟開發者工具 Network，確認未請求 `src/examples/` 的 module 或 SDK loader。手機寬度下按鈕不超出畫面。
+1. 開啟 `/`、`/?example=` 與 `/?example`，確認繁體中文選單與四個按鈕連結，沒有地圖；開啟開發者工具 Network，確認未請求 `src/examples/` 或 `src/proj01/` 的 module 或 SDK loader。手機寬度下按鈕不超出畫面。
 2. 從首頁點「訊息視窗」，確認網址為 `/?example=message-box`，全螢幕地圖出現「開始使用KWMAP !」；點擊 POI 仍顯示地名與地址。
 3. 按瀏覽器上一頁，確認回到首頁，再點「衛星影像」，確認網址為 `/?example=satellite`；工具列 tooltip 與影像顯示／隱藏正常。再按上一頁回到首頁。
 4. 從首頁點「基本地圖」，確認網址為 `/?example=basic-map`、頁面標題為「基本地圖」，且全螢幕地圖以指定中心點、俯視角度與縮放級別 14 顯示，縮放範圍為 7～18。直接貼上三個範例網址並重新整理，確認不需經過首頁也可正常執行；拖曳、縮放地圖維持正常。

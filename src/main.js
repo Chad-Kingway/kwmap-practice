@@ -17,7 +17,7 @@ const examples = {
   },
   proj01: {
     label: "proj01：3D 模型實驗室",
-    load: () => import("./examples/proj01.js"),
+    load: () => import("./proj01/proj01.js"),
   },
 };
 
