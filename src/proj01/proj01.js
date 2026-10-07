@@ -1,6 +1,6 @@
 import { accessKey, accessToken } from "../config.js";
 import { loadSdk } from "../sdk.js";
-import { normalizeDirections, validateEndpoints } from "./proj01-route.js";
+import { normalizeDirections, validateEndpoints, parseCoordinate } from "./proj01-route.js";
 import { geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix } from "./proj01-heading.js";
 import "./proj01.css";
 
@@ -72,35 +72,32 @@ export async function init() {
             <h2 id="proj01-route-title" class="proj01-section-title">汽車路線規劃</h2>
             <div id="proj01-route-query" class="proj01-route-query">
               <div class="proj01-coordinate-row">
-                <div><label for="proj01-origin-lng">起點經度</label>
-                  <input id="proj01-origin-lng" type="number" min="-180" max="180" step="any" value="${DEFAULT_ORIGIN[0]}"></div>
-                <div><label for="proj01-origin-lat">起點緯度</label>
-                  <input id="proj01-origin-lat" type="number" min="-90" max="90" step="any" value="${DEFAULT_ORIGIN[1]}"></div>
-                <button id="proj01-select-origin" type="button" aria-pressed="false" aria-describedby="proj01-pick-status">選取起點</button>
+                <div><label for="proj01-origin">起點</label>
+                  <input id="proj01-origin" type="text" placeholder="lng, lat" value="${DEFAULT_ORIGIN.join(", ")}"></div>
+                <button id="proj01-select-origin" type="button" aria-pressed="false">選取起點</button>
               </div>
               <div class="proj01-coordinate-row">
-                <div><label for="proj01-destination-lng">終點經度</label>
-                  <input id="proj01-destination-lng" type="number" min="-180" max="180" step="any" value="${DEFAULT_DESTINATION[0]}"></div>
-                <div><label for="proj01-destination-lat">終點緯度</label>
-                  <input id="proj01-destination-lat" type="number" min="-90" max="90" step="any" value="${DEFAULT_DESTINATION[1]}"></div>
-                <button id="proj01-select-destination" type="button" aria-pressed="false" aria-describedby="proj01-pick-status">選取終點</button>
+                <div><label for="proj01-destination">終點</label>
+                  <input id="proj01-destination" type="text" placeholder="lng, lat" value="${DEFAULT_DESTINATION.join(", ")}"></div>
+                <button id="proj01-select-destination" type="button" aria-pressed="false">選取終點</button>
               </div>
               <button id="proj01-plan" type="button">規劃汽車路線</button>
               <label class="proj01-check"><input id="proj01-path" type="checkbox" checked>顯示規劃路線</label>
-              <h2 id="proj01-settings-title" class="proj01-section-title">模型設定</h2>
-              <input id="proj01-scale" type="number" min="0.1" max="1000" step="0.1" value="${INITIAL.scale}">
-              <button id="proj01-reset" type="button">還原模型初始設定</button>
-              <h2 id="proj01-motion-title" class="proj01-section-title">路徑移動</h2>
-              <label for="proj01-duration">展示動畫時間（秒，1～300）</label>
-              <input id="proj01-duration" type="number" min="1" max="300" step="1" value="${INITIAL.duration}">
+              <label for="proj01-scale" class="proj01-section-title">模型比例</label>
+              <div class="proj01-input-row">
+                <input id="proj01-scale" type="number" min="0.1" max="1000" step="0.1" value="${INITIAL.scale}">
+                <button id="proj01-apply-scale" type="button">套用</button>
+              </div>
+              <label for="proj01-duration" class="proj01-section-title">路徑移動</label>
+              <div class="proj01-input-row">
+                <input id="proj01-duration" type="number" min="1" max="300" step="1" value="${INITIAL.duration}">
+                <span class="proj01-unit">（秒）</span>
+              </div>
               <button id="proj01-start" type="button">開始沿路徑移動</button>
-              <button id="proj01-follow" type="button" aria-describedby="proj01-follow-hint">鏡頭跟隨模型</button>
-              <p id="proj01-follow-hint" class="proj01-note">跟隨中，第一次按住左鍵拖曳可解除跟隨；再次拖曳即可移動地圖。</p>
-              <p class="proj01-note">規劃完成即朝向道路起始方向，但不自動播放。播放時固定沿當下前進方向轉向；每次重播從路線起點出發。</p>
+              <button id="proj01-follow" type="button">鏡頭跟隨模型</button>
             </div>
           </section>
-          <p class="proj01-note">選用服務回傳的第一條候選路線；標記是貼合道路後的起終點。模型與路線使用地面基準高度 0，並非真實道路或橋梁高度；秒數是展示時間，不是行車時間。</p>
-            </fieldset>
+        </fieldset>
       </details>
     </aside>
     <div id="map" aria-label="3D 地圖"></div>
@@ -111,7 +108,7 @@ export async function init() {
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });
   disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
-  const ui = Object.fromEntries(["status", "error", "vehicle-controls", "scale", "reset", "duration", "start", "path", "follow", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan", "select-origin", "select-destination"]
+  const ui = Object.fromEntries(["status", "error", "vehicle-controls", "scale", "apply-scale", "duration", "start", "path", "follow", "origin", "destination", "plan", "select-origin", "select-destination"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   let model;
@@ -143,9 +140,9 @@ export async function init() {
   const syncControls = () => {
     // 整組只在尚未就緒時停用；查詢及播放期間各控制項依功能分別管理。
     ui["vehicle-controls"].disabled = !ready;
-    ui.scale.disabled = ui.reset.disabled = ui.duration.disabled = !ready || moving || routing;
+    ui.scale.disabled = ui["apply-scale"].disabled = ui.duration.disabled = !ready || moving || routing;
     ui.path.disabled = !ready;
-    for (const name of ["origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan"]) {
+    for (const name of ["origin", "destination", "plan"]) {
       ui[name].disabled = !ready || moving || routing || !directions;
     }
     ui.start.disabled = !ready || moving || routing || activePath.length < 2;
@@ -299,6 +296,7 @@ export async function init() {
   let pickClickAllowed = false;
   const resetPickGesture = () => { pickGesture = null; pickClickAllowed = false; };
   const cancelPick = (message = "已取消選點；可手動輸入或重新選取。") => {
+    if (pickMode) status(message);
     pickMode = null;
     resetPickGesture();
     mapElement.classList.remove("proj01-picking");
@@ -332,8 +330,7 @@ export async function init() {
       return;
     }
     const endpoint = pickMode;
-    ui[`${endpoint}-lng`].value = String(lng);
-    ui[`${endpoint}-lat`].value = String(lat);
+    ui[endpoint].value = `${lng}, ${lat}`;
     clearError();
     cancelPick(`已填入${endpoint === "origin" ? "起點" : "終點"}經緯度；請按「規劃汽車路線」查詢。`);
   };
@@ -360,6 +357,7 @@ export async function init() {
       releaseFollow();
       resetPickGesture();
       pickMode = endpoint;
+      status(`請在地圖上點選${endpoint === "origin" ? "起點" : "終點"}`);
       mapElement.classList.add("proj01-picking");
       syncControls();
     }));
@@ -400,8 +398,8 @@ export async function init() {
     let origin;
     let destination;
     try {
-      origin = [number(ui["origin-lng"]), number(ui["origin-lat"])];
-      destination = [number(ui["destination-lng"]), number(ui["destination-lat"])];
+      origin = parseCoordinate(ui.origin.value, "起點");
+      destination = parseCoordinate(ui.destination.value, "終點");
       validateEndpoints(origin, destination);
     } catch (error) {
       showError(error);
@@ -434,25 +432,9 @@ export async function init() {
     }
   });
 
-  ui.scale.addEventListener("change", action(() => {
+  ui["apply-scale"].addEventListener("click", action(() => {
     // SDK 以新增模型時的比例為基準，因此將 UI 的整體比例換成相對倍率。
-    if (!moving) model.setScale(number(ui.scale) / INITIAL.scale);
-  }));
-  ui.reset.addEventListener("click", action(() => {
-    if (moving) return;
-    releaseLock();
-    ui.scale.value = INITIAL.scale;
-    if (activePath.length >= 2) placeAtRouteStart(activePath);
-    else {
-      position = [...DEFAULT_ORIGIN, 0];
-      model.setCoordinates([...position]);
-      travelBearing = 0;
-      setBearing(travelBearing);
-    }
-    model.setScale(1);
-    if (wantsFollow) scheduleLock();
-    syncControls();
-    status("已還原模型方向、比例與起點位置。");
+    if (!moving && !routing) model.setScale(number(ui.scale) / INITIAL.scale);
   }));
   ui.path.addEventListener("change", action(updateLine));
   ui.follow.addEventListener("click", action(() => {

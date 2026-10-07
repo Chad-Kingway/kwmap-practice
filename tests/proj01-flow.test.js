@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import { normalizeDirections, validateEndpoints } from "../src/proj01/proj01-route.js";
+import { normalizeDirections, validateEndpoints, parseCoordinate } from "../src/proj01/proj01-route.js";
 import { geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix } from "../src/proj01/proj01-heading.js";
 
 // 隔離外部服務與渲染，只檢查查詢競態、控制狀態及有效路線的替換流程。
@@ -47,7 +47,8 @@ async function setup() {
     quaternion: { setFromAxisAngle() { return this; } },
     setCoordinates(point) { this.coordinates = [...point]; },
     setRotation(rotation) { assert.equal(this.playing, false, "播放時不能由手動旋轉干涉 SDK"); this.rotations.push({ ...rotation }); },
-    setScale() {},
+    scales: [],
+    setScale(scale) { this.scales.push(scale); },
     followPath(options) {
       const onEnd = options.onEnd;
       this.playback = { ...options, onEnd: () => { this.playing = false; onEnd(); } };
@@ -80,7 +81,7 @@ async function setup() {
     document: { getElementById: node, createElement: () => ({}) }, window: Object.assign(node("window"), { location: { origin: "http://localhost" } }),
     fetch: async () => ({ ok: true, headers: { get: () => "model/gltf+json" }, json: async () => ({ asset: { version: "2.0" } }) }),
     AbortSignal, loadSdk: async () => SDK, accessKey: "測試", accessToken: "測試",
-    normalizeDirections, validateEndpoints, geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix,
+    normalizeDirections, validateEndpoints, parseCoordinate, geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix,
     setTimeout: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => { const id = ++nextTimer; frames.set(id, fn); return id; }, cancelAnimationFrame: (id) => frames.delete(id),
   });
@@ -117,10 +118,10 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   const newQuery = h.plan();
   h.queries[1].callback(h.result(points, "新路線"), "OK");
   await newQuery;
-  const success = h.ui("route-status").textContent;
+  const success = h.ui("status").textContent;
   h.queries[0].callback(h.result(points, "過期路線"), "OK");
   await Promise.resolve();
-  assert.equal(h.ui("route-status").textContent, success);
+  assert.equal(h.ui("status").textContent, success);
   assert.equal(h.timers.size, 0);
   assert.equal(h.ui("start").disabled, false);
   assert.equal(h.model.playback, null);
@@ -140,7 +141,7 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   assert.deepEqual([...h.renderedLines], [...h.lines], "新增路線完成後才重繪，不需要鏡頭操作");
   h.queries[2].callback([], "OK");
   await noRoute;
-  assert.match(h.ui("route-status").textContent, /無可用路線.*保留/);
+  assert.match(h.ui("error").textContent, /可用路線/);
   assert.equal(h.lines.size, 1);
   assert.equal(h.ui("start").disabled, false);
 
@@ -153,7 +154,7 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   h.ui("start").handlers.click();
   assert.equal(h.ui("vehicle-controls").disabled, false);
   assert.equal(h.ui("duration").disabled, true);
-  for (const name of ["scale", "reset", "origin-lng", "origin-lat", "destination-lng", "destination-lat"]) {
+  for (const name of ["scale", "apply-scale", "origin", "destination"]) {
     assert.equal(h.ui(name).disabled, true, "合併後仍分別停用播放期間不能修改的控制項");
   }
   assert.equal(h.ui("start").disabled, true);
@@ -176,12 +177,11 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   h.model.playback.onEnd();
   assert.equal(h.ui("duration").disabled, false);
   assert.equal(h.ui("scale").disabled, false);
-  assert.equal(h.ui("reset").disabled, false);
   assert.equal(h.ui("start").disabled, false);
   assert.equal(h.ui("plan").disabled, false);
 });
 
-test("道路吸附起點、第一段方向、還原與重播一致，失敗不改變位置及朝向", async () => {
+test("道路吸附起點、第一段方向與重播一致，失敗不改變位置及朝向", async () => {
   const h = await setup();
   assert.equal(h.nodes.has("proj01-heading"), false);
   assert.equal(h.nodes.has("proj01-rotation"), false);
@@ -209,9 +209,6 @@ test("道路吸附起點、第一段方向、還原與重播一致，失敗不�
     assert.deepEqual(h.model.coordinates, position);
     assert.equal(h.model.rotations.length, rotationCount);
   }
-  h.ui("reset").handlers.click();
-  assert.deepEqual(h.model.coordinates, [...points[0], 0]);
-  assert.equal(h.model.rotations.at(-1).z, 180);
   for (let replay = 0; replay < 2; replay++) {
     h.ui("start").handlers.click();
     assert.deepEqual(h.model.coordinates, [...points[0], 0]);
@@ -297,7 +294,7 @@ test("地圖選點切換及取消，只接受有效左鍵點擊，不改變既�
     assert.equal(pressed("origin"), "true", "非左鍵按下不能授權 SDK click");
   }
   assert.equal(pressed("origin"), "true");
-  assert.match(h.ui("pick-status").textContent, /請在地圖上點選起點/);
+  assert.match(h.ui("status").textContent, /請在地圖上點選起點/);
   select("destination");
   assert.equal(pressed("origin"), "false");
   assert.equal(pressed("destination"), "true");
@@ -306,13 +303,13 @@ test("地圖選點切換及取消，只接受有效左鍵點擊，不改變既�
   select("origin"); h.nodes.get("window").handlers.keydown({ key: "Escape" });
   assert.equal(pressed("origin"), "false");
   h.click(122, 26);
-  assert.equal(h.ui("origin-lng").value, "121.561");
+  assert.equal(h.ui("origin").value, "121.561, 25.0334");
 
   select("origin");
   for (const overrides of [{ button: 1 }, { button: 2 }, { target: h.nodes.get("proj01-panel") }]) {
     click(122, 26, overrides);
     assert.equal(pressed("origin"), "true");
-    assert.equal(h.ui("origin-lng").value, "121.561");
+    assert.equal(h.ui("origin").value, "121.561, 25.0334");
   }
   for (const [lng, lat] of [[NaN, 25], [181, 25], [121, -91]]) {
     click(lng, lat);
@@ -330,8 +327,7 @@ test("地圖選點切換及取消，只接受有效左鍵點擊，不改變既�
   }
   pointer("pointerdown"); pointer("pointermove", { clientX: 103, clientY: 102 });
   pointer("pointerup", { buttons: 0, clientX: 103, clientY: 102 }); h.click(121.561123456789, 25.033456789123);
-  assert.equal(h.ui("origin-lng").value, "121.561123456789");
-  assert.equal(h.ui("origin-lat").value, "25.033456789123");
+  assert.equal(h.ui("origin").value, "121.561123456789, 25.033456789123");
   assert.equal(pressed("origin"), "false");
   for (let repeat = 0; repeat < 3; repeat++) {
     select("destination"); click(121.562 + repeat / 10000, 25.034);
@@ -378,4 +374,42 @@ test("選點解除已鎖定及待鎖定跟隨，查詢或播放取消模式並�
   assert.equal(h.model.playing, true);
   h.model.playback.onEnd();
   assert.equal(h.ui("select-origin").disabled, false);
+});
+
+test("合併座標輸入驗證後才送出查詢，比例只在套用時更新", async () => {
+  const h = await setup();
+  const position = [...h.model.coordinates], rotations = h.model.rotations.length;
+  h.ui("scale").value = "20";
+  assert.deepEqual(h.model.scales, []);
+  h.ui("apply-scale").handlers.click();
+  assert.deepEqual(h.model.scales, [2]);
+  for (const value of ["", "0", "1001", "NaN"]) {
+    h.ui("scale").value = value;
+    h.ui("apply-scale").handlers.click();
+    assert.deepEqual(h.model.scales, [2]);
+    assert.match(h.ui("error").textContent, /有效數值/);
+  }
+  assert.deepEqual(h.model.coordinates, position);
+  assert.equal(h.model.rotations.length, rotations);
+  for (const value of ["", " ", "121", ",25", "121,", "121,25,1", "NaN,25", "181,25", "121,91", "1e999,25"]) {
+    h.ui("origin").value = value;
+    await h.plan();
+    assert.equal(h.queries.length, 0);
+    assert.match(h.ui("error").textContent, /起點.*座標/);
+  }
+  h.ui("origin").value = " 121.561 , 25.0334 ";
+  h.ui("destination").value = "121.562,25.034";
+  const query = h.plan();
+  assert.deepEqual(h.queries[0].options.origin, [121.561, 25.0334]);
+  assert.deepEqual(h.queries[0].options.destination, [121.562, 25.034]);
+  h.queries[0].callback(h.result([[121.561, 25.0334], [121.562, 25.034]]), "OK");
+  await query;
+  for (const value of ["", "0", "301", "NaN"]) {
+    h.ui("duration").value = value;
+    h.ui("start").handlers.click();
+    assert.equal(h.model.playback, null);
+  }
+  h.ui("duration").value = "12";
+  h.ui("start").handlers.click();
+  assert.equal(h.model.playback.duration, 12000);
 });

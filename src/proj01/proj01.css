@@ -28,7 +28,7 @@
 .proj01-panel fieldset { min-inline-size: 0; margin: 12px 0; padding: 10px; border: 1px solid #ccd4df; border-radius: 6px; }
 .proj01-panel legend { font-weight: bold; }
 .proj01-panel label { display: block; margin: 8px 0 4px; }
-.proj01-panel input[type="number"] { box-sizing: border-box; width: 100%; padding: 7px; font: inherit; }
+.proj01-panel input[type="number"], .proj01-panel input[type="text"] { box-sizing: border-box; width: 100%; min-width: 0; padding: 7px; font: inherit; }
 .proj01-panel .proj01-check { display: flex; align-items: center; gap: 8px; }
 .proj01-panel button { width: 100%; margin-top: 8px; padding: 9px; border: 0; border-radius: 5px; background: #175cd3; color: white; font: inherit; cursor: pointer; }
 .proj01-panel button:disabled { background: #e2e8f0; color: #64748b; cursor: default; }
@@ -51,20 +51,18 @@
 .proj01-vehicle-section + .proj01-vehicle-section { margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e8f0; }
 .proj01-section-title { margin: 0 0 8px; font-size: 14px; }
 .proj01-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.proj01-coordinate-row {
+.proj01-coordinate-row, .proj01-input-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 6px;
 }
 .proj01-coordinate-row > div { min-width: 0; }
-.proj01-panel .proj01-coordinate-row button { width: auto; margin: 0; padding: 9px 6px; white-space: nowrap; font-size: 12px; }
+.proj01-panel .proj01-coordinate-row button, .proj01-panel .proj01-input-row button { width: auto; margin: 0; padding: 9px 6px; white-space: nowrap; font-size: 12px; }
 @media (max-width: 700px) {
   .proj01-layout { height: auto; min-height: 100dvh; grid-template-columns: minmax(0, 1fr); align-content: start; }
   .proj01-panel { max-height: 45dvh; border-right: 0; border-bottom: 1px solid #ccd4df; padding: 12px; }
   .proj01-layout #map { height: max(360px, 55dvh); }
 }
-@media (max-width: 360px) {
-  .proj01-coordinate-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .proj01-panel .proj01-coordinate-row button { grid-column: 1 / -1; justify-self: end; }
-}
+.proj01-unit { align-self: center; white-space: nowrap; }
+.proj01-panel label.proj01-section-title { margin-top: 16px; font-weight: bold; }

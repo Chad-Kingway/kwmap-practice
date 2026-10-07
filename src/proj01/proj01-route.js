@@ -4,6 +4,20 @@ export function validCoordinate(point) {
     && Math.abs(point[0]) <= 180 && Math.abs(point[1]) <= 90;
 }
 
+export function parseCoordinate(text, label) {
+  if (!text.trim()) throw new Error(`請輸入${label}座標，格式為 lng, lat。`);
+  const parts = text.split(",").map((part) => part.trim());
+  const numeric = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
+  if (parts.length !== 2 || !parts.every((part) => numeric.test(part))) {
+    throw new Error(`${label}座標格式錯誤，請輸入兩個有效數值：lng, lat。`);
+  }
+  const point = parts.map(Number);
+  if (!validCoordinate(point)) {
+    throw new Error(`${label}座標無效，經度須在 -180～180、緯度須在 -90～90，且須為有限數值。`);
+  }
+  return point;
+}
+
 export function validateEndpoints(origin, destination) {
   if (!validCoordinate(origin) || !validCoordinate(destination)) {
     throw new Error("請輸入有限數值，經度須在 -180～180、緯度須在 -90～90。");
