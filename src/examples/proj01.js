@@ -51,7 +51,7 @@ export async function init() {
   document.title = "proj01：3D 模型與路徑實驗室";
   const app = document.getElementById("app");
   app.innerHTML = `
-    <div id="map"></div>
+    <div class="proj01-layout">
     <aside class="proj01-panel" aria-label="模型與路徑控制面板">
       <a href="/">← 返回首頁</a>
       <h1>proj01：3D 模型與路徑實驗室</h1>
@@ -59,15 +59,26 @@ export async function init() {
       <p id="proj01-error" role="alert" hidden></p>
       <fieldset id="proj01-route" disabled>
         <legend>汽車路線規劃</legend>
-        <label for="proj01-origin-lng">起點經度</label>
-        <input id="proj01-origin-lng" type="number" min="-180" max="180" step="any" value="${DEFAULT_ORIGIN[0]}">
-        <label for="proj01-origin-lat">起點緯度</label>
-        <input id="proj01-origin-lat" type="number" min="-90" max="90" step="any" value="${DEFAULT_ORIGIN[1]}">
-        <label for="proj01-destination-lng">終點經度</label>
-        <input id="proj01-destination-lng" type="number" min="-180" max="180" step="any" value="${DEFAULT_DESTINATION[0]}">
-        <label for="proj01-destination-lat">終點緯度</label>
-        <input id="proj01-destination-lat" type="number" min="-90" max="90" step="any" value="${DEFAULT_DESTINATION[1]}">
-        <button id="proj01-plan" type="button">規劃汽車路線</button>
+        <fieldset id="proj01-route-query" class="proj01-route-query" disabled>
+          <legend>起終點</legend>
+          <div class="proj01-coordinate-row">
+            <div><label for="proj01-origin-lng">起點經度</label>
+              <input id="proj01-origin-lng" type="number" min="-180" max="180" step="any" value="${DEFAULT_ORIGIN[0]}"></div>
+            <div><label for="proj01-origin-lat">起點緯度</label>
+              <input id="proj01-origin-lat" type="number" min="-90" max="90" step="any" value="${DEFAULT_ORIGIN[1]}"></div>
+            <button id="proj01-select-origin" type="button" disabled title="地圖選點功能尚未接入">選取起點</button>
+          </div>
+          <div class="proj01-coordinate-row">
+            <div><label for="proj01-destination-lng">終點經度</label>
+              <input id="proj01-destination-lng" type="number" min="-180" max="180" step="any" value="${DEFAULT_DESTINATION[0]}"></div>
+            <div><label for="proj01-destination-lat">終點緯度</label>
+              <input id="proj01-destination-lat" type="number" min="-90" max="90" step="any" value="${DEFAULT_DESTINATION[1]}"></div>
+            <button id="proj01-select-destination" type="button" disabled title="地圖選點功能尚未接入">選取終點</button>
+          </div>
+          <button id="proj01-plan" type="button">規劃汽車路線</button>
+          <p class="proj01-note">地圖選點尚未接入，請輸入經緯度。</p>
+        </fieldset>
+        <label class="proj01-check"><input id="proj01-path" type="checkbox" checked>顯示規劃路線</label>
       </fieldset>
       <p id="proj01-route-status" role="status" aria-live="polite">尚未規劃路線。</p>
       <fieldset id="proj01-settings" disabled>
@@ -85,16 +96,17 @@ export async function init() {
         <button id="proj01-start" type="button">開始沿路徑移動</button>
       </fieldset>
       <fieldset id="proj01-view" disabled>
-        <legend>路徑與鏡頭</legend>
-        <label class="proj01-check"><input id="proj01-path" type="checkbox" checked>顯示規劃路線</label>
+        <legend>鏡頭控制</legend>
         <button id="proj01-follow" type="button">鏡頭跟隨模型</button>
         <button id="proj01-release" type="button" disabled>解除跟隨</button>
       </fieldset>
       <p class="proj01-note">規劃完成即朝向道路起始方向，但不自動播放。播放時固定沿當下前進方向轉向；每次重播從路線起點出發。</p>
       <p class="proj01-note">選用服務回傳的第一條候選路線；標記是貼合道路後的起終點。高度取目前設定，並非真實道路或橋梁高度；秒數是展示時間，不是行車時間。</p>
     </aside>
+    <div id="map" aria-label="3D 地圖"></div>
+    </div>
   `;
-  const ui = Object.fromEntries(["status", "error", "settings", "motion", "view", "height", "scale", "reset", "duration", "start", "path", "follow", "release", "route", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan"]
+  const ui = Object.fromEntries(["status", "error", "settings", "motion", "view", "height", "scale", "reset", "duration", "start", "path", "follow", "release", "route", "route-query", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   let model;
@@ -124,7 +136,9 @@ export async function init() {
   const clearError = () => { ui.error.hidden = true; ui.error.textContent = ""; };
   const syncControls = () => {
     ui.settings.disabled = ui.motion.disabled = !ready || moving || routing;
-    ui.route.disabled = !ready || moving || routing || !directions;
+    // 路線顯示獨立於查詢控制，查詢與播放期間仍可切換。
+    ui.route.disabled = !ready;
+    ui["route-query"].disabled = !ready || moving || routing || !directions;
     ui.start.disabled = activePath.length < 2;
     ui.view.disabled = !ready;
     ui.follow.disabled = wantsFollow || cameraLocked;
@@ -409,6 +423,8 @@ export async function init() {
       center: [121.563, 25.0334], pitch: 60, zoom: 17,
       // 預設上限會限制跟隨視角的 pitch 65、zoom 18，僅在本範例明確放寬。
       maxPitch: 85, maxZoom: 24,
+      // 官方公開選項：視窗及響應式分區尺寸改變時，由 SDK 更新地圖大小。
+      trackResize: true,
     }), 45000, "地圖初始化逾時，請檢查網路、憑證與官方服務後重新整理。");
     await withTimeout(new Promise((resolve) => {
       let started = false;

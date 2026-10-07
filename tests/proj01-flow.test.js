@@ -76,14 +76,14 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   const points = [[121.561, 25.0334], [121.562, 25.034]];
   assert.equal(h.ui("start").disabled, true);
   const oldQuery = h.plan();
-  assert.equal(h.ui("route").disabled, true);
+  assert.equal(h.ui("route-query").disabled, true);
   await h.plan();
   assert.equal(h.queries.length, 1);
   const timeout = [...h.timers.values()].find(({ delay }) => delay === 20000);
   timeout.fn();
   await oldQuery;
   assert.equal(h.timers.size, 0);
-  assert.equal(h.ui("route").disabled, false);
+  assert.equal(h.ui("route-query").disabled, false);
   assert.equal(h.ui("start").disabled, true);
   assert.match(h.ui("error").textContent, /逾時/);
 
@@ -101,6 +101,14 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   assert.equal(h.markers.filter((marker) => !marker.removed).length, 2);
 
   const noRoute = h.plan();
+  assert.equal(h.ui("route").disabled, false);
+  assert.equal(h.ui("path").disabled, false);
+  h.ui("path").checked = false;
+  h.ui("path").handlers.change();
+  assert.equal(h.lines.size, 0);
+  h.ui("path").checked = true;
+  h.ui("path").handlers.change();
+  assert.equal(h.lines.size, 1);
   h.queries[2].callback([], "OK");
   await noRoute;
   assert.match(h.ui("route-status").textContent, /無可用路線.*保留/);
@@ -114,7 +122,15 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   assert.equal(h.markers.filter((marker) => !marker.removed).length, 2);
   assert.equal(h.markers[0].removed, true);
   h.ui("start").handlers.click();
-  assert.equal(h.ui("route").disabled, true);
+  assert.equal(h.ui("route-query").disabled, true);
+  assert.equal(h.ui("route").disabled, false);
+  assert.equal(h.ui("path").disabled, false);
+  h.ui("path").checked = false;
+  h.ui("path").handlers.change();
+  assert.equal(h.lines.size, 0);
+  h.ui("path").checked = true;
+  h.ui("path").handlers.change();
+  assert.equal(h.lines.size, 1);
   await h.plan();
   assert.equal(h.queries.length, 4);
   assert.equal(h.model.playback.curveOptions.tension, 0);
@@ -122,7 +138,7 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   assert.deepEqual(JSON.parse(JSON.stringify(h.model.playback.path)), points.toReversed().map((point) => [...point, 0]));
   h.model.coordinates = [...points[0], 0];
   h.model.playback.onEnd();
-  assert.equal(h.ui("route").disabled, false);
+  assert.equal(h.ui("route-query").disabled, false);
 });
 
 test("道路吸附起點、第一段方向、還原與重播一致，失敗不改變位置及朝向", async () => {
