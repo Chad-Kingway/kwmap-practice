@@ -17,6 +17,7 @@ const LINE_ID = "proj01-path";
 const FOLLOW_DRAG_THRESHOLD = 5;
 let disposePanelWheel;
 let disposeMapDrag;
+let disposeMapPick;
 
 async function checkModelAssets() {
   const response = await fetch(MODEL_URL, { signal: AbortSignal.timeout(15000) });
@@ -53,6 +54,7 @@ export async function init() {
   // 每次初始化先清除上一個面板與地圖的監聽；完整頁面切換則由瀏覽器釋放。
   disposePanelWheel?.();
   disposeMapDrag?.();
+  disposeMapPick?.();
   document.title = "proj01：3D 模型與路徑實驗室";
   const app = document.getElementById("app");
   app.innerHTML = `
@@ -71,17 +73,17 @@ export async function init() {
               <input id="proj01-origin-lng" type="number" min="-180" max="180" step="any" value="${DEFAULT_ORIGIN[0]}"></div>
             <div><label for="proj01-origin-lat">起點緯度</label>
               <input id="proj01-origin-lat" type="number" min="-90" max="90" step="any" value="${DEFAULT_ORIGIN[1]}"></div>
-            <button id="proj01-select-origin" type="button" disabled title="地圖選點功能尚未接入">選取起點</button>
+            <button id="proj01-select-origin" type="button" aria-pressed="false" aria-describedby="proj01-pick-status">選取起點</button>
           </div>
           <div class="proj01-coordinate-row">
             <div><label for="proj01-destination-lng">終點經度</label>
               <input id="proj01-destination-lng" type="number" min="-180" max="180" step="any" value="${DEFAULT_DESTINATION[0]}"></div>
             <div><label for="proj01-destination-lat">終點緯度</label>
               <input id="proj01-destination-lat" type="number" min="-90" max="90" step="any" value="${DEFAULT_DESTINATION[1]}"></div>
-            <button id="proj01-select-destination" type="button" disabled title="地圖選點功能尚未接入">選取終點</button>
+            <button id="proj01-select-destination" type="button" aria-pressed="false" aria-describedby="proj01-pick-status">選取終點</button>
           </div>
           <button id="proj01-plan" type="button">規劃汽車路線</button>
-          <p class="proj01-note">地圖選點尚未接入，請輸入經緯度。</p>
+          <p id="proj01-pick-status" class="proj01-note" role="status" aria-live="polite">可手動輸入經緯度，或按選取按鈕後在地圖左鍵點選。再次按同一按鈕或 Escape 取消。</p>
         </fieldset>
         <label class="proj01-check"><input id="proj01-path" type="checkbox" checked>顯示規劃路線</label>
       </fieldset>
@@ -113,7 +115,7 @@ export async function init() {
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });
   disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
-  const ui = Object.fromEntries(["status", "error", "settings", "motion", "height", "scale", "reset", "duration", "start", "path", "follow", "route", "route-query", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan"]
+  const ui = Object.fromEntries(["status", "error", "settings", "motion", "height", "scale", "reset", "duration", "start", "path", "follow", "route", "route-query", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan", "select-origin", "select-destination", "pick-status"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   let model;
@@ -134,6 +136,7 @@ export async function init() {
   let movementFrame = null;
   let travelBearing = 0;
   let ready = false;
+  let pickMode = null;
   let position = [...DEFAULT_ORIGIN, INITIAL.height];
   const status = (message) => { ui.status.textContent = message; };
   const showError = (error) => {
@@ -151,6 +154,10 @@ export async function init() {
     ui["route-query"].disabled = !ready || moving || routing || !directions;
     ui.start.disabled = moving || routing || activePath.length < 2;
     ui.follow.disabled = wantsFollow || cameraLocked;
+    for (const endpoint of ["origin", "destination"]) {
+      ui[`select-${endpoint}`].disabled = !ready || moving || routing || !directions;
+      ui[`select-${endpoint}`].setAttribute("aria-pressed", String(pickMode === endpoint));
+    }
   };
   const number = (input) => {
     if (!input.checkValidity() || input.value === "" || !Number.isFinite(input.valueAsNumber)) {
@@ -291,6 +298,77 @@ export async function init() {
     resetDrag();
     for (const [name, handler, capture] of dragListeners) mapElement.removeEventListener(name, handler, capture);
   };
+  let pickGesture = null;
+  let pickClickAllowed = false;
+  const resetPickGesture = () => { pickGesture = null; pickClickAllowed = false; };
+  const cancelPick = (message = "已取消選點；可手動輸入或重新選取。") => {
+    if (pickMode) ui["pick-status"].textContent = message;
+    pickMode = null;
+    resetPickGesture();
+    mapElement.classList.remove("proj01-picking");
+    syncControls();
+  };
+  const beginPick = (event) => {
+    resetPickGesture();
+    if (!pickMode || !ready || moving || routing || event.pointerType !== "mouse" || event.button !== 0 || event.buttons !== 1) return;
+    pickGesture = { id: event.pointerId, x: event.clientX, y: event.clientY, dragged: false };
+  };
+  const movePick = (event) => {
+    if (!pickGesture || event.pointerId !== pickGesture.id) return;
+    if (event.buttons !== 1) { resetPickGesture(); return; }
+    if (Math.hypot(event.clientX - pickGesture.x, event.clientY - pickGesture.y) >= FOLLOW_DRAG_THRESHOLD) pickGesture.dragged = true;
+  };
+  const endPick = (event) => {
+    if (!pickGesture || event.pointerId !== pickGesture.id) return;
+    pickClickAllowed = event.button === 0 && !pickGesture.dragged
+      && Math.hypot(event.clientX - pickGesture.x, event.clientY - pickGesture.y) < FOLLOW_DRAG_THRESHOLD;
+    pickGesture = null;
+  };
+  const handlePickClick = (event) => {
+    const allowed = pickClickAllowed;
+    pickClickAllowed = false;
+    // 已在實際 mapThree 1.4.3 查驗 click 的 lngLat 及 originalEvent；不自行轉換像素。
+    if (!allowed || !pickMode || !ready || moving || routing || event.originalEvent?.button !== 0
+      || !mapElement.contains(event.originalEvent.target)) return;
+    const { lng, lat } = event.lngLat ?? {};
+    if (!Number.isFinite(lng) || !Number.isFinite(lat) || lng < -180 || lng > 180 || lat < -90 || lat > 90) {
+      showError(new Error("地圖點選未取得有效經緯度，請重新點選。"));
+      return;
+    }
+    const endpoint = pickMode;
+    ui[`${endpoint}-lng`].value = String(lng);
+    ui[`${endpoint}-lat`].value = String(lat);
+    clearError();
+    cancelPick(`已填入${endpoint === "origin" ? "起點" : "終點"}經緯度；請按「規劃汽車路線」查詢。`);
+  };
+  const escapePick = (event) => { if (event.key === "Escape" && pickMode) cancelPick(); };
+  const pickListeners = [
+    ["pointerdown", beginPick, true], ["pointermove", movePick, true], ["pointerup", endPick, true],
+    ["pointercancel", resetPickGesture, true], ["pointerleave", resetPickGesture, false],
+  ];
+  for (const [name, handler, capture] of pickListeners) mapElement.addEventListener(name, handler, { capture, passive: true });
+  window.addEventListener("keydown", escapePick);
+  window.addEventListener("blur", resetPickGesture);
+  let pickMap = null;
+  disposeMapPick = () => {
+    cancelPick();
+    for (const [name, handler, capture] of pickListeners) mapElement.removeEventListener(name, handler, capture);
+    window.removeEventListener("keydown", escapePick);
+    window.removeEventListener("blur", resetPickGesture);
+    pickMap?.off("click", handlePickClick);
+  };
+  for (const endpoint of ["origin", "destination"]) {
+    ui[`select-${endpoint}`].addEventListener("click", action(() => {
+      if (moving || routing || !directions) return;
+      if (pickMode === endpoint) { cancelPick(); return; }
+      releaseFollow();
+      resetPickGesture();
+      pickMode = endpoint;
+      mapElement.classList.add("proj01-picking");
+      ui["pick-status"].textContent = `請在地圖上點選${endpoint === "origin" ? "起點" : "終點"}`;
+      syncControls();
+    }));
+  }
   const installRoute = (data, request, height) => {
     const nextLine = `${LINE_ID}-${request}`;
     const nextMarkers = [];
@@ -322,6 +400,7 @@ export async function init() {
   };
   ui.plan.addEventListener("click", async () => {
     if (!ready || !directions || moving || routing) return;
+    cancelPick();
     clearError();
     let origin;
     let destination;
@@ -400,6 +479,7 @@ export async function init() {
   ui.path.addEventListener("change", action(updateLine));
   ui.follow.addEventListener("click", action(() => {
     if (wantsFollow || cameraLocked) return;
+    cancelPick();
     wantsFollow = true;
     // 播放尚未 onStart 時先保留意願，其餘情況在下一幀使用模型當下座標。
     if (!moving || movementStarted) scheduleLock();
@@ -410,6 +490,7 @@ export async function init() {
     if (activePath.length < 2) throw new Error("請先成功規劃一條有效路線。");
     const duration = number(ui.duration) * 1000;
     const path = pathAtHeight();
+    cancelPick();
     const run = ++runVersion;
     // 先同步鎖定控制，再交給 SDK；只由官方 onEnd 回呼解除移動狀態。
     moving = true;
@@ -498,6 +579,8 @@ export async function init() {
     setBearing(0);
     updateLine();
     ready = true;
+    pickMap = map;
+    map.on("click", handlePickClick);
     syncControls();
     status("模型載入完成，可以調整設定；請先規劃路線再開始移動。");
   } catch (error) {

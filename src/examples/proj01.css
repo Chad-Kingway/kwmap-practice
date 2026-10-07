@@ -32,6 +32,8 @@
 .proj01-panel .proj01-check { display: flex; align-items: center; gap: 8px; }
 .proj01-panel button { width: 100%; margin-top: 8px; padding: 9px; border: 0; border-radius: 5px; background: #175cd3; color: white; font: inherit; cursor: pointer; }
 .proj01-panel button:disabled { background: #e2e8f0; color: #64748b; cursor: default; }
+.proj01-panel button[aria-pressed="true"] { background: #9a3412; box-shadow: inset 0 0 0 2px #ff7a18; }
+.proj01-layout #map.proj01-picking, .proj01-layout #map.proj01-picking canvas { cursor: crosshair; }
 .proj01-panel fieldset:disabled { opacity: 0.65; }
 .proj01-panel :focus-visible { outline: 3px solid #ff7a18; outline-offset: 2px; }
 .proj01-model, .proj01-note { color: #526075; font-size: 12px; overflow-wrap: anywhere; }
