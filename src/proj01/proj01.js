@@ -86,23 +86,18 @@ export async function init() {
                 <button id="proj01-select-destination" type="button" aria-pressed="false" aria-describedby="proj01-pick-status">選取終點</button>
               </div>
               <button id="proj01-plan" type="button">規劃汽車路線</button>
+              <label class="proj01-check"><input id="proj01-path" type="checkbox" checked>顯示規劃路線</label>
+              <h2 id="proj01-settings-title" class="proj01-section-title">模型設定</h2>
+              <input id="proj01-scale" type="number" min="0.1" max="1000" step="0.1" value="${INITIAL.scale}">
+              <button id="proj01-reset" type="button">還原模型初始設定</button>
+              <h2 id="proj01-motion-title" class="proj01-section-title">路徑移動</h2>
+              <label for="proj01-duration">展示動畫時間（秒，1～300）</label>
+              <input id="proj01-duration" type="number" min="1" max="300" step="1" value="${INITIAL.duration}">
+              <button id="proj01-start" type="button">開始沿路徑移動</button>
+              <button id="proj01-follow" type="button" aria-describedby="proj01-follow-hint">鏡頭跟隨模型</button>
+              <p id="proj01-follow-hint" class="proj01-note">跟隨中，第一次按住左鍵拖曳可解除跟隨；再次拖曳即可移動地圖。</p>
+              <p class="proj01-note">規劃完成即朝向道路起始方向，但不自動播放。播放時固定沿當下前進方向轉向；每次重播從路線起點出發。</p>
             </div>
-            <label class="proj01-check"><input id="proj01-path" type="checkbox" checked>顯示規劃路線</label>
-          </section>
-          <section id="proj01-settings" class="proj01-vehicle-section" aria-labelledby="proj01-settings-title">
-            <h2 id="proj01-settings-title" class="proj01-section-title">模型設定</h2>
-            <label for="proj01-scale">整體比例</label>
-            <input id="proj01-scale" type="number" min="0.1" max="1000" step="0.1" value="${INITIAL.scale}">
-            <button id="proj01-reset" type="button">還原模型初始設定</button>
-          </section>
-          <section id="proj01-motion" class="proj01-vehicle-section" aria-labelledby="proj01-motion-title">
-            <h2 id="proj01-motion-title" class="proj01-section-title">路徑移動</h2>
-            <label for="proj01-duration">展示動畫時間（秒，1～300）</label>
-            <input id="proj01-duration" type="number" min="1" max="300" step="1" value="${INITIAL.duration}">
-            <button id="proj01-start" type="button">開始沿路徑移動</button>
-            <button id="proj01-follow" type="button" aria-describedby="proj01-follow-hint">鏡頭跟隨模型</button>
-            <p id="proj01-follow-hint" class="proj01-note">跟隨中，第一次按住左鍵拖曳可解除跟隨；再次拖曳即可移動地圖。</p>
-            <p class="proj01-note">規劃完成即朝向道路起始方向，但不自動播放。播放時固定沿當下前進方向轉向；每次重播從路線起點出發。</p>
           </section>
           <p class="proj01-note">選用服務回傳的第一條候選路線；標記是貼合道路後的起終點。模型與路線使用地面基準高度 0，並非真實道路或橋梁高度；秒數是展示時間，不是行車時間。</p>
             </fieldset>
