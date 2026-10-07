@@ -7,7 +7,8 @@ import { geographicBearing, initialPathBearing, modelRotationFromBearing, instal
 
 // 隔離外部服務與渲染，只檢查查詢競態、控制狀態及有效路線的替換流程。
 async function setup() {
-  const nodes = new Map(), timers = new Map(), queries = [], markers = [], lines = new Map();
+  const nodes = new Map(), timers = new Map(), queries = [], markers = [], lines = new Map(), frames = new Map();
+  const camera = { locks: 0, releases: 0 };
   let nextTimer = 0;
   const node = (id) => {
     if (!nodes.has(id)) nodes.set(id, {
@@ -15,6 +16,7 @@ async function setup() {
       get valueAsNumber() { return this.value === "" ? NaN : Number(this.value); },
       checkValidity() { return Number.isFinite(this.valueAsNumber) && this.valueAsNumber >= Number(this.min) && this.valueAsNumber <= Number(this.max); },
       addEventListener(event, fn) { this.handlers[event] = fn; },
+      removeEventListener(event, fn) { if (this.handlers[event] === fn) delete this.handlers[event]; },
     });
     return nodes.get(id);
   };
@@ -46,19 +48,19 @@ async function setup() {
       this.three = {
         add3dModel: (options) => { model.creationOptions = options; return Promise.resolve(model); },
         add3dLine: (options) => lines.set(options.id, options), remove3dObjectById: (id) => lines.delete(id),
-        fixedCameraToModel() {}, releaseCamera() {},
+        fixedCameraToModel() { camera.locks++; }, releaseCamera() { camera.releases++; },
       };
     }
     on(_, callback) { callback(); } offLayer() {} jumpTo() {}
     decodePolyline(encoded) { return JSON.parse(encoded); }
   }
   const context = vm.createContext({
-    document: { getElementById: node, createElement: () => ({}) }, window: { location: { origin: "http://localhost" } },
+    document: { getElementById: node, createElement: () => ({}) }, window: Object.assign(node("window"), { location: { origin: "http://localhost" } }),
     fetch: async () => ({ ok: true, headers: { get: () => "model/gltf+json" }, json: async () => ({ asset: { version: "2.0" } }) }),
     AbortSignal, loadSdk: async () => SDK, accessKey: "測試", accessToken: "測試",
     normalizeDirections, validateEndpoints, geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix,
     setTimeout: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
-    clearTimeout: (id) => timers.delete(id), requestAnimationFrame: () => ++nextTimer, cancelAnimationFrame() {},
+    clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => { const id = ++nextTimer; frames.set(id, fn); return id; }, cancelAnimationFrame: (id) => frames.delete(id),
   });
   const source = fs.readFileSync(new URL("../src/examples/proj01.js", import.meta.url), "utf8")
     .replace(/^import .*;\r?\n/gm, "").replace("export async function init", "async function init");
@@ -68,7 +70,9 @@ async function setup() {
     start_location: { lng: points[0][0], lat: points[0][1] },
     end_location: { lng: points.at(-1)[0], lat: points.at(-1)[1] },
   }] }] }];
-  return { ui, nodes, timers, queries, markers, lines, model, result, plan: () => ui("plan").handlers.click() };
+  return { ui, nodes, timers, queries, markers, lines, model, result, camera, frames,
+    frame: () => { const batch = [...frames.values()]; frames.clear(); for (const fn of batch) fn(); },
+    plan: () => ui("plan").handlers.click() };
 }
 
 test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播放阻止新查詢", async () => {
@@ -177,5 +181,60 @@ test("道路吸附起點、第一段方向、還原與重播一致，失敗不�
     h.model.coordinates = [...points.at(-1), 0];
     h.model.playback.onEnd();
     assert.equal(h.model.rotations.length, rotations);
+  }
+});
+
+test("地圖左鍵拖曳解除跟隨，取消待鎖定回呼且不中斷播放", async () => {
+  const h = await setup();
+  const map = h.nodes.get("map"), window = h.nodes.get("window");
+  const pointer = (type, overrides = {}) => map.handlers[type]({ pointerType: "mouse", pointerId: 1, button: 0, buttons: 1, clientX: 100, clientY: 100, ...overrides });
+  h.ui("follow").handlers.click();
+  const staleLock = [...h.frames.values()][0];
+  for (const [button, buttons] of [[1, 4], [2, 2]]) {
+    pointer("pointerdown", { button, buttons });
+    pointer("pointermove", { buttons, clientX: 120 });
+    assert.equal(h.ui("follow").disabled, true);
+  }
+  pointer("pointerdown");
+  pointer("pointermove", { clientX: 103, clientY: 102 });
+  assert.equal(h.ui("follow").disabled, true, "小於 5px 不解除");
+  pointer("pointerup", { buttons: 0 });
+  pointer("pointermove", { clientX: 120 });
+  assert.equal(h.ui("follow").disabled, true, "點擊後不殘留拖曳");
+  for (const end of ["pointerleave", "pointercancel", "blur"]) {
+    pointer("pointerdown");
+    if (end === "blur") window.handlers.blur(); else pointer(end);
+    pointer("pointermove", { clientX: 120 });
+    assert.equal(h.ui("follow").disabled, true);
+  }
+  pointer("pointerdown");
+  pointer("pointermove", { pointerId: 2, clientX: 120 });
+  assert.equal(h.ui("follow").disabled, true, "忽略另一個指標");
+  pointer("pointermove", { clientX: 105 });
+  staleLock(); h.frame();
+  assert.equal(h.camera.locks, 0, "取消待鎖定且過期回呼不能重新鎖定");
+  assert.equal(h.ui("follow").disabled, false);
+  assert.equal(h.ui("release").disabled, true);
+
+  const points = [[121.561, 25.0334], [121.562, 25.034]];
+  const planning = h.plan(); h.queries[0].callback(h.result(points), "OK"); await planning;
+  for (let replay = 0; replay < 2; replay++) {
+    h.ui("follow").handlers.click(); h.frame();
+    assert.equal(h.ui("release").disabled, false);
+    h.ui("start").handlers.click();
+    const playback = h.model.playback, locks = h.camera.locks;
+    if (replay === 1) h.frame(); // 分別驗證等待重鎖及已重鎖的播放。
+    const releases = h.camera.releases;
+    pointer("pointerdown"); pointer("pointermove", { clientX: 110 });
+    h.frame();
+    assert.equal(h.ui("follow").disabled, false);
+    assert.equal(h.ui("release").disabled, true);
+    assert.equal(h.camera.locks, locks + (replay === 1 ? 1 : 0));
+    assert.equal(h.camera.releases, releases + (replay === 1 ? 1 : 0));
+    assert.equal(h.model.playing, true);
+    assert.equal(h.model.playback, playback, "原本的播放流程不能重啟");
+    pointer("pointerdown"); pointer("pointermove", { clientX: 120 });
+    assert.equal(h.model.playback, playback, "自由鏡頭拖曳不影響播放");
+    playback.onEnd();
   }
 });

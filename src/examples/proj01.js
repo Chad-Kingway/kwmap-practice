@@ -14,7 +14,9 @@ const DEFAULT_DESTINATION = [121.567, 25.034];
 // 已查驗 SDK 使用 CatmullRomCurve3；catmullrom 的零張力使每段幾何沿原線段，不切角。
 const ROUTE_CURVE = { closed: false, curveType: "catmullrom", tension: 0 };
 const LINE_ID = "proj01-path";
+const FOLLOW_DRAG_THRESHOLD = 5;
 let disposePanelWheel;
+let disposeMapDrag;
 
 async function checkModelAssets() {
   const response = await fetch(MODEL_URL, { signal: AbortSignal.timeout(15000) });
@@ -48,8 +50,9 @@ function withTimeout(promise, milliseconds, message) {
 }
 
 export async function init() {
-  // 每次初始化先清除上一個面板的監聽；完整頁面切換則由瀏覽器釋放。
+  // 每次初始化先清除上一個面板與地圖的監聽；完整頁面切換則由瀏覽器釋放。
   disposePanelWheel?.();
+  disposeMapDrag?.();
   document.title = "proj01：3D 模型與路徑實驗室";
   const app = document.getElementById("app");
   app.innerHTML = `
@@ -99,6 +102,7 @@ export async function init() {
       </fieldset>
       <fieldset id="proj01-view" disabled>
         <legend>鏡頭控制</legend>
+        <p class="proj01-note">跟隨時在地圖按住左鍵拖曳即可解除，車子繼續移動；單擊不解除。</p>
         <button id="proj01-follow" type="button">鏡頭跟隨模型</button>
         <button id="proj01-release" type="button" disabled>解除跟隨</button>
       </fieldset>
@@ -256,6 +260,40 @@ export async function init() {
     clearError();
     try { fn(); } catch (error) { showError(error); }
   };
+  const mapElement = document.getElementById("map");
+  let dragStart = null;
+  const resetDrag = () => {
+    dragStart = null;
+    window.removeEventListener("blur", resetDrag);
+  };
+  const releaseFollow = () => {
+    resetDrag();
+    wantsFollow = false;
+    try { releaseLock(); } finally { syncControls(); }
+  };
+  const beginDrag = (event) => {
+    resetDrag();
+    if (!ready || (!wantsFollow && !cameraLocked) || event.pointerType !== "mouse" || event.button !== 0 || event.buttons !== 1) return;
+    dragStart = { id: event.pointerId, x: event.clientX, y: event.clientY };
+    window.addEventListener("blur", resetDrag, { once: true });
+  };
+  const moveDrag = (event) => {
+    if (!dragStart || event.pointerId !== dragStart.id) return;
+    if (event.buttons !== 1 || (!wantsFollow && !cameraLocked)) { resetDrag(); return; }
+    const distance = Math.hypot(event.clientX - dragStart.x, event.clientY - dragStart.y);
+    if (distance >= FOLLOW_DRAG_THRESHOLD) action(releaseFollow)();
+  };
+  // 容器捕獲僅觀察事件，不取消預設行為或傳播，不攔截 SDK 原本的拖曳處理。
+  const dragListeners = [
+    ["pointerdown", beginDrag, true], ["pointermove", moveDrag, true],
+    ["pointerup", resetDrag, true], ["pointercancel", resetDrag, true],
+    ["pointerleave", resetDrag, false],
+  ];
+  for (const [name, handler, capture] of dragListeners) mapElement.addEventListener(name, handler, { capture, passive: true });
+  disposeMapDrag = () => {
+    resetDrag();
+    for (const [name, handler, capture] of dragListeners) mapElement.removeEventListener(name, handler, capture);
+  };
   const installRoute = (data, request, height) => {
     const nextLine = `${LINE_ID}-${request}`;
     const nextMarkers = [];
@@ -370,10 +408,7 @@ export async function init() {
     if (!moving || movementStarted) scheduleLock();
     syncControls();
   }));
-  ui.release.addEventListener("click", action(() => {
-    wantsFollow = false;
-    try { releaseLock(); } finally { syncControls(); }
-  }));
+  ui.release.addEventListener("click", action(releaseFollow));
   ui.start.addEventListener("click", action(() => {
     if (moving || routing) return;
     if (activePath.length < 2) throw new Error("請先成功規劃一條有效路線。");
