@@ -43,8 +43,14 @@
 .proj01-route-marker { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border: 2px solid white; border-radius: 50%; box-shadow: 0 2px 6px #0005; color: white; font: bold 16px sans-serif; }
 .proj01-route-origin { background: #15803d; }
 .proj01-route-end { background: #be123c; }
-.proj01-panel .proj01-route-query { margin: 0; padding: 0; border: 0; }
-.proj01-route-query legend { font-size: 12px; color: #526075; }
+.proj01-vehicle { margin: 12px 0; border: 1px solid #ccd4df; border-radius: 6px; }
+.proj01-vehicle-summary { padding: 12px; background: #edf4ff; border-radius: 6px; font-weight: bold; cursor: pointer; }
+.proj01-vehicle-summary::marker { color: #175cd3; }
+.proj01-vehicle[open] > .proj01-vehicle-summary { border-radius: 6px 6px 0 0; border-bottom: 1px solid #ccd4df; }
+.proj01-panel .proj01-vehicle-controls { margin: 0; border: 0; }
+.proj01-vehicle-section + .proj01-vehicle-section { margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e8f0; }
+.proj01-section-title { margin: 0 0 8px; font-size: 14px; }
+.proj01-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .proj01-coordinate-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;

@@ -103,14 +103,14 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   const points = [[121.561, 25.0334], [121.562, 25.034]];
   assert.equal(h.ui("start").disabled, true);
   const oldQuery = h.plan();
-  assert.equal(h.ui("route-query").disabled, true);
+  assert.equal(h.ui("plan").disabled, true);
   await h.plan();
   assert.equal(h.queries.length, 1);
   const timeout = [...h.timers.values()].find(({ delay }) => delay === 20000);
   timeout.fn();
   await oldQuery;
   assert.equal(h.timers.size, 0);
-  assert.equal(h.ui("route-query").disabled, false);
+  assert.equal(h.ui("plan").disabled, false);
   assert.equal(h.ui("start").disabled, true);
   assert.match(h.ui("error").textContent, /逾時/);
 
@@ -128,7 +128,7 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   assert.equal(h.markers.filter((marker) => !marker.removed).length, 2);
 
   const noRoute = h.plan();
-  assert.equal(h.ui("route").disabled, false);
+  assert.equal(h.ui("vehicle-controls").disabled, false);
   assert.equal(h.ui("path").disabled, false);
   h.ui("path").checked = false;
   h.ui("path").handlers.change();
@@ -151,12 +151,15 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   assert.equal(h.markers.filter((marker) => !marker.removed).length, 2);
   assert.equal(h.markers[0].removed, true);
   h.ui("start").handlers.click();
-  assert.equal(h.ui("motion").disabled, false);
+  assert.equal(h.ui("vehicle-controls").disabled, false);
   assert.equal(h.ui("duration").disabled, true);
+  for (const name of ["scale", "reset", "origin-lng", "origin-lat", "destination-lng", "destination-lat"]) {
+    assert.equal(h.ui(name).disabled, true, "合併後仍分別停用播放期間不能修改的控制項");
+  }
   assert.equal(h.ui("start").disabled, true);
   assert.equal(h.ui("follow").disabled, false);
-  assert.equal(h.ui("route-query").disabled, true);
-  assert.equal(h.ui("route").disabled, false);
+  assert.equal(h.ui("plan").disabled, true);
+  assert.equal(h.ui("vehicle-controls").disabled, false);
   assert.equal(h.ui("path").disabled, false);
   h.ui("path").checked = false;
   h.ui("path").handlers.change();
@@ -172,8 +175,10 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   h.model.coordinates = [...points[0], 0];
   h.model.playback.onEnd();
   assert.equal(h.ui("duration").disabled, false);
+  assert.equal(h.ui("scale").disabled, false);
+  assert.equal(h.ui("reset").disabled, false);
   assert.equal(h.ui("start").disabled, false);
-  assert.equal(h.ui("route-query").disabled, false);
+  assert.equal(h.ui("plan").disabled, false);
 });
 
 test("道路吸附起點、第一段方向、還原與重播一致，失敗不改變位置及朝向", async () => {
