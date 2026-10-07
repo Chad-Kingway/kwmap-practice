@@ -14,6 +14,7 @@ const DEFAULT_DESTINATION = [121.567, 25.034];
 // 已查驗 SDK 使用 CatmullRomCurve3；catmullrom 的零張力使每段幾何沿原線段，不切角。
 const ROUTE_CURVE = { closed: false, curveType: "catmullrom", tension: 0 };
 const LINE_ID = "proj01-path";
+let disposePanelWheel;
 
 async function checkModelAssets() {
   const response = await fetch(MODEL_URL, { signal: AbortSignal.timeout(15000) });
@@ -47,11 +48,13 @@ function withTimeout(promise, milliseconds, message) {
 }
 
 export async function init() {
+  // 每次初始化先清除上一個面板的監聽；完整頁面切換則由瀏覽器釋放。
+  disposePanelWheel?.();
   document.title = "proj01：3D 模型與路徑實驗室";
   const app = document.getElementById("app");
   app.innerHTML = `
     <div class="proj01-layout">
-    <aside class="proj01-panel" aria-label="模型與路徑控制面板">
+    <aside id="proj01-panel" class="proj01-panel" aria-label="模型與路徑控制面板">
       <a href="/">← 返回首頁</a>
       <h1>proj01：3D 模型與路徑實驗室</h1>
       <p id="proj01-status" role="status" aria-live="polite">正在檢查模型素材…</p>
@@ -105,6 +108,11 @@ export async function init() {
     <div id="map" aria-label="3D 地圖"></div>
     </div>
   `;
+  const panel = document.getElementById("proj01-panel");
+  // 已查驗 SDK 跟隨以 window 的冒泡 wheel 調整縮放；只隔離面板，保留原生捲動。
+  const stopPanelWheel = (event) => event.stopPropagation();
+  panel.addEventListener("wheel", stopPanelWheel, { passive: true });
+  disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
   const ui = Object.fromEntries(["status", "error", "settings", "motion", "view", "height", "scale", "reset", "duration", "start", "path", "follow", "release", "route", "route-query", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
