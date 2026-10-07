@@ -104,7 +104,6 @@ export async function init() {
         <legend>鏡頭控制</legend>
         <p class="proj01-note">跟隨時在地圖按住左鍵拖曳即可解除，車子繼續移動；單擊不解除。</p>
         <button id="proj01-follow" type="button">鏡頭跟隨模型</button>
-        <button id="proj01-release" type="button" disabled>解除跟隨</button>
       </fieldset>
       <p class="proj01-note">規劃完成即朝向道路起始方向，但不自動播放。播放時固定沿當下前進方向轉向；每次重播從路線起點出發。</p>
       <p class="proj01-note">選用服務回傳的第一條候選路線；標記是貼合道路後的起終點。高度取目前設定，並非真實道路或橋梁高度；秒數是展示時間，不是行車時間。</p>
@@ -117,7 +116,7 @@ export async function init() {
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });
   disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
-  const ui = Object.fromEntries(["status", "error", "settings", "motion", "view", "height", "scale", "reset", "duration", "start", "path", "follow", "release", "route", "route-query", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan"]
+  const ui = Object.fromEntries(["status", "error", "settings", "motion", "view", "height", "scale", "reset", "duration", "start", "path", "follow", "route", "route-query", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   let model;
@@ -153,7 +152,6 @@ export async function init() {
     ui.start.disabled = activePath.length < 2;
     ui.view.disabled = !ready;
     ui.follow.disabled = wantsFollow || cameraLocked;
-    ui.release.disabled = !wantsFollow && !cameraLocked;
   };
   const number = (input) => {
     if (!input.checkValidity() || input.value === "" || !Number.isFinite(input.valueAsNumber)) {
@@ -408,7 +406,6 @@ export async function init() {
     if (!moving || movementStarted) scheduleLock();
     syncControls();
   }));
-  ui.release.addEventListener("click", action(releaseFollow));
   ui.start.addEventListener("click", action(() => {
     if (moving || routing) return;
     if (activePath.length < 2) throw new Error("請先成功規劃一條有效路線。");
