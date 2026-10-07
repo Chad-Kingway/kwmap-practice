@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import { normalizeDirections, validateEndpoints } from "../src/examples/proj01-route.js";
+import { geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix } from "../src/examples/proj01-heading.js";
 
 // 隔離外部服務與渲染，只檢查查詢競態、控制狀態及有效路線的替換流程。
 async function setup() {
@@ -25,16 +26,25 @@ async function setup() {
   } });
   const ui = (name) => node(`proj01-${name}`);
   const model = {
-    coordinates: [121.561, 25.0334, 0], playback: null,
-    setCoordinates(point) { this.coordinates = [...point]; }, setRotation() {}, setScale() {},
-    followPath(options) { this.playback = options; options.onStart(); return Promise.resolve(); },
+    coordinates: [121.561, 25.0334, 0], playback: null, rotations: [], playing: false,
+    quaternion: { setFromAxisAngle() { return this; } },
+    setCoordinates(point) { this.coordinates = [...point]; },
+    setRotation(rotation) { assert.equal(this.playing, false, "播放時不能由手動旋轉干涉 SDK"); this.rotations.push({ ...rotation }); },
+    setScale() {},
+    followPath(options) {
+      const onEnd = options.onEnd;
+      this.playback = { ...options, onEnd: () => { this.playing = false; onEnd(); } };
+      this.playing = true;
+      options.onStart();
+      return Promise.resolve();
+    },
   };
   class SDK {
     static DirectionsService = class { route(options, callback) { queries.push({ options, callback }); } };
     static Marker = class { constructor(options) { this.options = options; this.removed = false; markers.push(this); } remove() { this.removed = true; } setAltitude() {} };
     constructor() {
       this.three = {
-        add3dModel: () => Promise.resolve(model),
+        add3dModel: (options) => { model.creationOptions = options; return Promise.resolve(model); },
         add3dLine: (options) => lines.set(options.id, options), remove3dObjectById: (id) => lines.delete(id),
         fixedCameraToModel() {}, releaseCamera() {},
       };
@@ -46,7 +56,7 @@ async function setup() {
     document: { getElementById: node, createElement: () => ({}) }, window: { location: { origin: "http://localhost" } },
     fetch: async () => ({ ok: true, headers: { get: () => "model/gltf+json" }, json: async () => ({ asset: { version: "2.0" } }) }),
     AbortSignal, loadSdk: async () => SDK, accessKey: "測試", accessToken: "測試",
-    normalizeDirections, validateEndpoints,
+    normalizeDirections, validateEndpoints, geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix,
     setTimeout: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: () => ++nextTimer, cancelAnimationFrame() {},
   });
@@ -58,7 +68,7 @@ async function setup() {
     start_location: { lng: points[0][0], lat: points[0][1] },
     end_location: { lng: points.at(-1)[0], lat: points.at(-1)[1] },
   }] }] }];
-  return { ui, timers, queries, markers, lines, model, result, plan: () => ui("plan").handlers.click() };
+  return { ui, nodes, timers, queries, markers, lines, model, result, plan: () => ui("plan").handlers.click() };
 }
 
 test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播放阻止新查詢", async () => {
@@ -108,8 +118,48 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   await h.plan();
   assert.equal(h.queries.length, 4);
   assert.equal(h.model.playback.curveOptions.tension, 0);
+  assert.equal(h.model.playback.trackHeading, true);
   assert.deepEqual(JSON.parse(JSON.stringify(h.model.playback.path)), points.toReversed().map((point) => [...point, 0]));
   h.model.coordinates = [...points[0], 0];
   h.model.playback.onEnd();
   assert.equal(h.ui("route").disabled, false);
+});
+
+test("道路吸附起點、第一段方向、還原與重播一致，失敗不改變位置及朝向", async () => {
+  const h = await setup();
+  assert.equal(h.nodes.has("proj01-heading"), false);
+  assert.equal(h.nodes.has("proj01-rotation"), false);
+  assert.deepEqual(JSON.parse(JSON.stringify(h.model.creationOptions.rotation)), { x: 90, y: 0, z: 0 });
+  h.ui("height").value = "12";
+  const points = [[121.56, 25.03], [121.56, 25.03], [121.56, 25.031], [121.559, 25.031]];
+  const request = h.plan();
+  h.queries[0].callback(h.result(points), "OK");
+  await request;
+  assert.deepEqual(h.model.coordinates, [...points[0], 12]);
+  assert.notDeepEqual(h.model.coordinates.slice(0, 2), h.queries[0].options.origin);
+  assert.equal(h.model.rotations.at(-1).z, 180);
+  assert.equal(h.model.playback, null);
+
+  const position = [...h.model.coordinates], rotationCount = h.model.rotations.length;
+  for (const [candidates, status] of [[[], "OK"], [h.result(points), "ERROR"], [[{ legs: [] }], "OK"]]) {
+    const pending = h.plan();
+    h.queries.at(-1).callback(candidates, status);
+    await pending;
+    assert.deepEqual(h.model.coordinates, position);
+    assert.equal(h.model.rotations.length, rotationCount);
+  }
+  h.ui("reset").handlers.click();
+  assert.deepEqual(h.model.coordinates, [...points[0], 0]);
+  assert.equal(h.model.rotations.at(-1).z, 180);
+  for (let replay = 0; replay < 2; replay++) {
+    h.ui("start").handlers.click();
+    assert.deepEqual(h.model.coordinates, [...points[0], 0]);
+    assert.equal(h.model.rotations.at(-1).z, 180);
+    assert.equal(h.model.playback.trackHeading, true);
+    const rotations = h.model.rotations.length;
+    // SDK 負責播放途中的方向；測試只模擬到達終點，不呼叫手動 setRotation。
+    h.model.coordinates = [...points.at(-1), 0];
+    h.model.playback.onEnd();
+    assert.equal(h.model.rotations.length, rotations);
+  }
 });

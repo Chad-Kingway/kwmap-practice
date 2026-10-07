@@ -1,40 +1,20 @@
 import { accessKey, accessToken } from "../config.js";
 import { loadSdk } from "../sdk.js";
 import { normalizeDirections, validateEndpoints } from "./proj01-route.js";
+import { geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix } from "./proj01-heading.js";
 import "./proj01.css";
 
 const MODEL_URL = "/models/car/scene.gltf";
-// 素材的初始姿態校正；只在建立模型時套用，與手動車頭角度分開管理。
-const INITIAL_ROTATION = { x: 90, y: 180, z: 0 };
-const INITIAL = { height: 0, heading: 0, scale: 10, duration: 10 };
+// 已以車前／後底盤幾何查驗：X=90、Y=0 使素材車頭沿 +Y，符合 SDK trackHeading 基準。
+// 原 Y=180 使車頭沿 -Y，會與 SDK 自動朝向相反；校正只在建立模型時套用。
+const INITIAL_ROTATION = { x: 90, y: 0, z: 0 };
+const INITIAL = { height: 0, scale: 10, duration: 10 };
 const FOLLOW_CAMERA = { pitch: 65, zoom: 18 };
 const DEFAULT_ORIGIN = [121.561, 25.0334];
 const DEFAULT_DESTINATION = [121.567, 25.034];
 // 已查驗 SDK 使用 CatmullRomCurve3；catmullrom 的零張力使每段幾何沿原線段，不切角。
 const ROUTE_CURVE = { closed: false, curveType: "catmullrom", tension: 0 };
 const LINE_ID = "proj01-path";
-
-// 地理前進方位角：北為 0 度、東為 90 度，與素材的手動 Z 角度無關。
-function geographicBearing(from, to) {
-  if (from[0] === to[0] && from[1] === to[1]) return null;
-  const radians = (degrees) => degrees * Math.PI / 180;
-  const lat1 = radians(from[1]);
-  const lat2 = radians(to[1]);
-  const deltaLng = radians(to[0] - from[0]);
-  const y = Math.sin(deltaLng) * Math.cos(lat2);
-  const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLng);
-  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
-}
-
-function initialPathBearing(path) {
-  const valid = path.filter((point) => Array.isArray(point) && point.length >= 2
-    && point.slice(0, 2).every(Number.isFinite) && Math.abs(point[0]) <= 180 && Math.abs(point[1]) <= 90);
-  for (let i = 1; i < valid.length; i++) {
-    const bearing = geographicBearing(valid[i - 1], valid[i]);
-    if (bearing !== null) return bearing;
-  }
-  throw new Error("路徑缺少有效且不同位置的線段，無法設定跟隨方向。");
-}
 
 async function checkModelAssets() {
   const response = await fetch(MODEL_URL, { signal: AbortSignal.timeout(15000) });
@@ -94,8 +74,6 @@ export async function init() {
         <legend>模型設定</legend>
         <label for="proj01-height">高度（公尺）</label>
         <input id="proj01-height" type="number" min="0" max="500" step="1" value="${INITIAL.height}">
-        <label for="proj01-rotation">手動車頭角度</label>
-        <input id="proj01-rotation" type="number" min="0" max="360" step="1" value="${INITIAL.heading}" aria-describedby="proj01-heading-note">
         <label for="proj01-scale">整體比例（初始展示比例為 10）</label>
         <input id="proj01-scale" type="number" min="0.1" max="1000" step="0.1" value="${INITIAL.scale}">
         <button id="proj01-reset" type="button">還原模型初始設定</button>
@@ -104,7 +82,6 @@ export async function init() {
         <legend>路徑移動</legend>
         <label for="proj01-duration">展示動畫時間（秒，1～300）</label>
         <input id="proj01-duration" type="number" min="1" max="300" step="1" value="${INITIAL.duration}">
-        <label class="proj01-check"><input id="proj01-heading" type="checkbox" checked>朝向前進方向</label>
         <button id="proj01-start" type="button">開始沿路徑移動</button>
       </fieldset>
       <fieldset id="proj01-view" disabled>
@@ -113,11 +90,11 @@ export async function init() {
         <button id="proj01-follow" type="button">鏡頭跟隨模型</button>
         <button id="proj01-release" type="button" disabled>解除跟隨</button>
       </fieldset>
-      <p class="proj01-note">每次移動從路徑起點出發。移動完成後可再調整模型或重播。</p>
+      <p class="proj01-note">規劃完成即朝向道路起始方向，但不自動播放。播放時固定沿當下前進方向轉向；每次重播從路線起點出發。</p>
       <p class="proj01-note">選用服務回傳的第一條候選路線；標記是貼合道路後的起終點。高度取目前設定，並非真實道路或橋梁高度；秒數是展示時間，不是行車時間。</p>
     </aside>
   `;
-  const ui = Object.fromEntries(["status", "error", "settings", "motion", "view", "height", "rotation", "scale", "reset", "duration", "heading", "start", "path", "follow", "release", "route", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan"]
+  const ui = Object.fromEntries(["status", "error", "settings", "motion", "view", "height", "scale", "reset", "duration", "start", "path", "follow", "release", "route", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   let model;
@@ -159,9 +136,17 @@ export async function init() {
     }
     return input.valueAsNumber;
   };
-  const setHeading = (heading) => {
-    // SDK 以建立模型時的校正姿態為基準，設定目標 Z 角度，不累加或重複套用 X、Y。
-    model.setRotation({ x: 0, y: 0, z: heading });
+  const setBearing = (bearing) => {
+    // 設定目標 Z 角度；不累加、不重複套用素材校正，播放中只由 SDK 控制旋轉。
+    model.setRotation({ x: 0, y: 0, z: modelRotationFromBearing(bearing) });
+  };
+  const placeAtRouteStart = (path, height) => {
+    const bearing = initialPathBearing(path);
+    const start = [path[0][0], path[0][1], height];
+    model.setCoordinates(start);
+    setBearing(bearing);
+    position = [...start];
+    travelBearing = bearing;
   };
   const currentPosition = () => {
     // 已查驗 1.4.3 實作：SDK 使用模型 coordinates 作為跟隨位置，移動時會更新它。
@@ -250,7 +235,7 @@ export async function init() {
     clearError();
     try { fn(); } catch (error) { showError(error); }
   };
-  const installRoute = (data, request, height, heading) => {
+  const installRoute = (data, request, height) => {
     const nextLine = `${LINE_ID}-${request}`;
     const nextMarkers = [];
     const path = data.coordinates.map(([lng, lat]) => [lng, lat, height]);
@@ -263,8 +248,7 @@ export async function init() {
       }
       if (ui.path.checked) map.three.add3dLine({ id: nextLine, coordinates: path, color: "#ff7a18", width: 5 });
       releaseLock();
-      model.setCoordinates([...path[0]]);
-      setHeading(heading);
+      placeAtRouteStart(path, height);
     } catch (error) {
       map.three.remove3dObjectById(nextLine);
       for (const marker of nextMarkers) marker.remove();
@@ -276,8 +260,6 @@ export async function init() {
     activePath = data.coordinates;
     lineId = nextLine;
     routeMarkers = nextMarkers;
-    position = [...path[0]];
-    travelBearing = initialPathBearing(activePath);
     runVersion++;
     if (wantsFollow) scheduleLock();
     else map.jumpTo({ center: position.slice(0, 2), zoom: 15.5, pitch: 60, bearing: travelBearing });
@@ -288,13 +270,11 @@ export async function init() {
     let origin;
     let destination;
     let height;
-    let heading;
     try {
       origin = [number(ui["origin-lng"]), number(ui["origin-lat"])];
       destination = [number(ui["destination-lng"]), number(ui["destination-lat"])];
       validateEndpoints(origin, destination);
       height = number(ui.height);
-      heading = number(ui.rotation);
     } catch (error) {
       ui["route-status"].textContent = "查詢未送出，請修正起終點或模型設定。";
       showError(error);
@@ -318,9 +298,9 @@ export async function init() {
       }
       if (routeStatus !== "OK") throw new Error(`路線服務回傳失敗狀態：${String(routeStatus)}。`);
       const data = normalizeDirections(candidates, (encoded) => map.decodePolyline(encoded));
-      installRoute(data, request, height, heading);
+      installRoute(data, request, height);
       ui["route-status"].textContent = `規劃成功：${data.summary}，${data.coordinates.length} 個幾何點；選用 ${data.candidates} 條候選中的第一條。請另按開始播放。`;
-      status("模型已移到道路路線起點，尚未開始移動。");
+      status("模型已移到道路路線起點並朝向起始前進方向，尚未開始移動。");
     } catch (error) {
       if (request !== queryVersion) return;
       ui["route-status"].textContent = `查詢失敗。${activePath.length ? "保留上一條成功路線。" : "尚無有效路線可播放。"}`;
@@ -340,9 +320,6 @@ export async function init() {
     model.setCoordinates([...position]);
     updateLine();
   }));
-  ui.rotation.addEventListener("change", action(() => {
-    if (!moving) setHeading(number(ui.rotation));
-  }));
   ui.scale.addEventListener("change", action(() => {
     // SDK 以新增模型時的比例為基準，因此將 UI 的整體比例換成相對倍率。
     if (!moving) model.setScale(number(ui.scale) / INITIAL.scale);
@@ -351,12 +328,14 @@ export async function init() {
     if (moving) return;
     releaseLock();
     for (const key of ["height", "scale"]) ui[key].value = INITIAL[key];
-    ui.rotation.value = INITIAL.heading;
-    position = [...(activePath[0] ?? DEFAULT_ORIGIN), INITIAL.height];
-    model.setCoordinates([...position]);
-    setHeading(INITIAL.heading);
+    if (activePath.length >= 2) placeAtRouteStart(activePath, INITIAL.height);
+    else {
+      position = [...DEFAULT_ORIGIN, INITIAL.height];
+      model.setCoordinates([...position]);
+      travelBearing = 0;
+      setBearing(travelBearing);
+    }
     model.setScale(1);
-    travelBearing = activePath.length >= 2 ? initialPathBearing(activePath) : 0;
     updateLine();
     if (wantsFollow) scheduleLock();
     syncControls();
@@ -379,8 +358,6 @@ export async function init() {
     if (activePath.length < 2) throw new Error("請先成功規劃一條有效路線。");
     const duration = number(ui.duration) * 1000;
     const path = pathAtHeight();
-    const heading = number(ui.rotation);
-    const bearing = initialPathBearing(path);
     const run = ++runVersion;
     // 先同步鎖定控制，再交給 SDK；只由官方 onEnd 回呼解除移動狀態。
     moving = true;
@@ -390,13 +367,10 @@ export async function init() {
     try {
       releaseLock();
       cancelMovementFrame();
-      position = [...path[0]];
-      travelBearing = bearing;
-      model.setCoordinates([...path[0]]);
-      setHeading(heading);
+      placeAtRouteStart(path, number(ui.height));
       if (wantsFollow) prepareCamera();
       const playback = model.followPath({
-        path, duration, trackHeading: ui.heading.checked, curveOptions: { ...ROUTE_CURVE },
+        path, duration, trackHeading: true, curveOptions: { ...ROUTE_CURVE },
         onStart: () => {
           if (run !== runVersion || !moving || movementStarted) return;
           movementStarted = true;
@@ -466,7 +440,8 @@ export async function init() {
       expired = true;
       throw error;
     }
-    setHeading(INITIAL.heading);
+    installSdkHeadingQuaternionFix(model);
+    setBearing(0);
     updateLine();
     ready = true;
     syncControls();

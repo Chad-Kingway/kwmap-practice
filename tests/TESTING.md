@@ -1,6 +1,6 @@
 # 測試說明
 
-目前有兩個測試檔案。
+目前有三個測試檔案。
 
 ## 執行方式
 
@@ -15,6 +15,7 @@ node --test tests/*.test.js
 ```sh
 node --test tests/proj01-route.test.js
 node --test tests/proj01-flow.test.js
+node --test tests/proj01-heading.test.js
 ```
 
 ## 路線資料測試
@@ -43,5 +44,22 @@ node --test tests/proj01-flow.test.js
 - 查無路線時，保留上一條有效路線。
 - 換路線後，清除舊線與標記。
 - 播放使用新路線，期間不能查詢，結束後恢復操作。
+- 車子使用道路吸附後的起點與目前高度，規劃完成就對準第一路段。
+- 還原與重播的起點及朝向一致，播放固定使用 SDK 自動朝向。
+- 查詢失敗或幾何無效時，車子的位置與朝向不變。
+- 沒有手動角度與自動朝向選項，播放時不呼叫手動旋轉。
 
 此測試不會連線到真實服務，也不檢查地圖與模型的實際顯示效果。
+
+## 車頭方向測試
+
+檔案：[tests/proj01-heading.test.js](proj01-heading.test.js)
+
+受測程式：[src/examples/proj01-heading.js](../src/examples/proj01-heading.js)。
+
+- 北、東、南、西的地理方向能轉成正確的模型 Z 角度。
+- 跳過相鄰重複座標，使用第一路段而非整條路線的起終點方向。
+- 重複設定不累加；零度使用 360 度，避開 SDK 忽略零值的行為。
+- 正北零軸半轉及高度投影造成的翻轉能修正，車子保持直立；其他模型不受影響。
+
+素材姿態與實際 SDK 轉彎方向仍以瀏覽器人工測試驗證。
