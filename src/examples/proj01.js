@@ -5,9 +5,8 @@ import { geographicBearing, initialPathBearing, modelRotationFromBearing, instal
 import "./proj01.css";
 
 const MODEL_URL = "/models/car/scene.gltf";
-// 已以車前／後底盤幾何查驗：X=90、Y=0 使素材車頭沿 +Y，符合 SDK trackHeading 基準。
-// 原 Y=180 使車頭沿 -Y，會與 SDK 自動朝向相反；校正只在建立模型時套用。
-const INITIAL_ROTATION = { x: 90, y: 0, z: 0 };
+// 請不要改INITIAL_ROTATION
+const INITIAL_ROTATION = { x: 90, y: 180, z: 0 };
 const INITIAL = { height: 0, scale: 10, duration: 10 };
 const FOLLOW_CAMERA = { pitch: 65, zoom: 18 };
 const DEFAULT_ORIGIN = [121.561, 25.0334];
