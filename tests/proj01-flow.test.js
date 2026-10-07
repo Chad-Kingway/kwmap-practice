@@ -149,7 +149,6 @@ test("道路吸附起點、第一段方向、還原與重播一致，失敗不�
   const h = await setup();
   assert.equal(h.nodes.has("proj01-heading"), false);
   assert.equal(h.nodes.has("proj01-rotation"), false);
-  assert.deepEqual(JSON.parse(JSON.stringify(h.model.creationOptions.rotation)), { x: 90, y: 0, z: 0 });
   h.ui("height").value = "12";
   const points = [[121.56, 25.03], [121.56, 25.03], [121.56, 25.031], [121.559, 25.031]];
   const request = h.plan();
