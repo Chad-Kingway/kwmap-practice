@@ -50,16 +50,3 @@ node --test tests/proj01-heading.test.js
 - 沒有手動角度與自動朝向選項，播放時不呼叫手動旋轉。
 
 此測試不會連線到真實服務，也不檢查地圖與模型的實際顯示效果。
-
-## 車頭方向測試
-
-檔案：[tests/proj01-heading.test.js](proj01-heading.test.js)
-
-受測程式：[src/examples/proj01-heading.js](../src/examples/proj01-heading.js)。
-
-- 北、東、南、西的地理方向能轉成正確的模型 Z 角度。
-- 跳過相鄰重複座標，使用第一路段而非整條路線的起終點方向。
-- 重複設定不累加；零度使用 360 度，避開 SDK 忽略零值的行為。
-- 正北零軸半轉及高度投影造成的翻轉能修正，車子保持直立；其他模型不受影響。
-
-素材姿態與實際 SDK 轉彎方向仍以瀏覽器人工測試驗證。
