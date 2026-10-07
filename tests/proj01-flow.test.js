@@ -126,6 +126,11 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   assert.equal(h.markers.filter((marker) => !marker.removed).length, 2);
   assert.equal(h.markers[0].removed, true);
   h.ui("start").handlers.click();
+  assert.equal(h.ui("motion").disabled, false);
+  assert.equal(h.ui("duration").disabled, true);
+  assert.equal(h.ui("start").disabled, true);
+  assert.equal(h.ui("follow").disabled, false);
+  assert.equal(h.ui("release").disabled, true);
   assert.equal(h.ui("route-query").disabled, true);
   assert.equal(h.ui("route").disabled, false);
   assert.equal(h.ui("path").disabled, false);
@@ -142,6 +147,8 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   assert.deepEqual(JSON.parse(JSON.stringify(h.model.playback.path)), points.toReversed().map((point) => [...point, 0]));
   h.model.coordinates = [...points[0], 0];
   h.model.playback.onEnd();
+  assert.equal(h.ui("duration").disabled, false);
+  assert.equal(h.ui("start").disabled, false);
   assert.equal(h.ui("route-query").disabled, false);
 });
 
