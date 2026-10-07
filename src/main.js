@@ -15,9 +15,9 @@ const examples = {
     label: "衛星影像",
     load: () => import("./examples/satellite.js"),
   },
-  test01: {
-    label: "test01：3D 模型實驗室",
-    load: () => import("./examples/test01.js"),
+  proj01: {
+    label: "proj01：3D 模型實驗室",
+    load: () => import("./examples/proj01.js"),
   },
 };
 
@@ -52,7 +52,7 @@ async function loadExample() {
     app.innerHTML = '<main class="example-error" role="status">正在載入地圖 SDK…</main>';
     // 每次連結切換都重新載入頁面，只載入該範例需要的 SDK，避免全域依賴互相覆蓋。
     const example = await examples[exampleName].load();
-    if (exampleName !== "test01") await loadSdk("mapPlus");
+    if (exampleName !== "proj01") await loadSdk("mapPlus");
     await example.init();
   } catch (error) {
     document.title = "範例載入失敗";

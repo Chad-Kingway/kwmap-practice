@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeDirections, validateEndpoints } from "../src/examples/test01-route.js";
+import { normalizeDirections, validateEndpoints } from "../src/examples/proj01-route.js";
 
 const a = [121.56, 25.03];
 const b = [121.561, 25.031];

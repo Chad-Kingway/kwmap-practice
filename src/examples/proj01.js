@@ -1,7 +1,7 @@
 import { accessKey, accessToken } from "../config.js";
 import { loadSdk } from "../sdk.js";
-import { normalizeDirections, validateEndpoints } from "./test01-route.js";
-import "./test01.css";
+import { normalizeDirections, validateEndpoints } from "./proj01-route.js";
+import "./proj01.css";
 
 const MODEL_URL = "/models/car/scene.gltf";
 // 素材的初始姿態校正；只在建立模型時套用，與手動車頭角度分開管理。
@@ -12,7 +12,7 @@ const DEFAULT_ORIGIN = [121.561, 25.0334];
 const DEFAULT_DESTINATION = [121.567, 25.034];
 // 已查驗 SDK 使用 CatmullRomCurve3；catmullrom 的零張力使每段幾何沿原線段，不切角。
 const ROUTE_CURVE = { closed: false, curveType: "catmullrom", tension: 0 };
-const LINE_ID = "test01-path";
+const LINE_ID = "proj01-path";
 
 // 地理前進方位角：北為 0 度、東為 90 度，與素材的手動 Z 角度無關。
 function geographicBearing(from, to) {
@@ -68,57 +68,57 @@ function withTimeout(promise, milliseconds, message) {
 }
 
 export async function init() {
-  document.title = "test01：3D 模型與路徑實驗室";
+  document.title = "proj01：3D 模型與路徑實驗室";
   const app = document.getElementById("app");
   app.innerHTML = `
     <div id="map"></div>
-    <aside class="test01-panel" aria-label="模型與路徑控制面板">
+    <aside class="proj01-panel" aria-label="模型與路徑控制面板">
       <a href="/">← 返回首頁</a>
-      <h1>test01：3D 模型與路徑實驗室</h1>
-      <p id="test01-status" role="status" aria-live="polite">正在檢查模型素材…</p>
-      <p id="test01-error" role="alert" hidden></p>
-      <fieldset id="test01-route" disabled>
+      <h1>proj01：3D 模型與路徑實驗室</h1>
+      <p id="proj01-status" role="status" aria-live="polite">正在檢查模型素材…</p>
+      <p id="proj01-error" role="alert" hidden></p>
+      <fieldset id="proj01-route" disabled>
         <legend>汽車路線規劃</legend>
-        <label for="test01-origin-lng">起點經度</label>
-        <input id="test01-origin-lng" type="number" min="-180" max="180" step="any" value="${DEFAULT_ORIGIN[0]}">
-        <label for="test01-origin-lat">起點緯度</label>
-        <input id="test01-origin-lat" type="number" min="-90" max="90" step="any" value="${DEFAULT_ORIGIN[1]}">
-        <label for="test01-destination-lng">終點經度</label>
-        <input id="test01-destination-lng" type="number" min="-180" max="180" step="any" value="${DEFAULT_DESTINATION[0]}">
-        <label for="test01-destination-lat">終點緯度</label>
-        <input id="test01-destination-lat" type="number" min="-90" max="90" step="any" value="${DEFAULT_DESTINATION[1]}">
-        <button id="test01-plan" type="button">規劃汽車路線</button>
+        <label for="proj01-origin-lng">起點經度</label>
+        <input id="proj01-origin-lng" type="number" min="-180" max="180" step="any" value="${DEFAULT_ORIGIN[0]}">
+        <label for="proj01-origin-lat">起點緯度</label>
+        <input id="proj01-origin-lat" type="number" min="-90" max="90" step="any" value="${DEFAULT_ORIGIN[1]}">
+        <label for="proj01-destination-lng">終點經度</label>
+        <input id="proj01-destination-lng" type="number" min="-180" max="180" step="any" value="${DEFAULT_DESTINATION[0]}">
+        <label for="proj01-destination-lat">終點緯度</label>
+        <input id="proj01-destination-lat" type="number" min="-90" max="90" step="any" value="${DEFAULT_DESTINATION[1]}">
+        <button id="proj01-plan" type="button">規劃汽車路線</button>
       </fieldset>
-      <p id="test01-route-status" role="status" aria-live="polite">尚未規劃路線。</p>
-      <fieldset id="test01-settings" disabled>
+      <p id="proj01-route-status" role="status" aria-live="polite">尚未規劃路線。</p>
+      <fieldset id="proj01-settings" disabled>
         <legend>模型設定</legend>
-        <label for="test01-height">高度（公尺）</label>
-        <input id="test01-height" type="number" min="0" max="500" step="1" value="${INITIAL.height}">
-        <label for="test01-rotation">手動車頭角度</label>
-        <input id="test01-rotation" type="number" min="0" max="360" step="1" value="${INITIAL.heading}" aria-describedby="test01-heading-note">
-        <label for="test01-scale">整體比例（初始展示比例為 10）</label>
-        <input id="test01-scale" type="number" min="0.1" max="1000" step="0.1" value="${INITIAL.scale}">
-        <button id="test01-reset" type="button">還原模型初始設定</button>
+        <label for="proj01-height">高度（公尺）</label>
+        <input id="proj01-height" type="number" min="0" max="500" step="1" value="${INITIAL.height}">
+        <label for="proj01-rotation">手動車頭角度</label>
+        <input id="proj01-rotation" type="number" min="0" max="360" step="1" value="${INITIAL.heading}" aria-describedby="proj01-heading-note">
+        <label for="proj01-scale">整體比例（初始展示比例為 10）</label>
+        <input id="proj01-scale" type="number" min="0.1" max="1000" step="0.1" value="${INITIAL.scale}">
+        <button id="proj01-reset" type="button">還原模型初始設定</button>
       </fieldset>
-      <fieldset id="test01-motion" disabled>
+      <fieldset id="proj01-motion" disabled>
         <legend>路徑移動</legend>
-        <label for="test01-duration">展示動畫時間（秒，1～300）</label>
-        <input id="test01-duration" type="number" min="1" max="300" step="1" value="${INITIAL.duration}">
-        <label class="test01-check"><input id="test01-heading" type="checkbox" checked>朝向前進方向</label>
-        <button id="test01-start" type="button">開始沿路徑移動</button>
+        <label for="proj01-duration">展示動畫時間（秒，1～300）</label>
+        <input id="proj01-duration" type="number" min="1" max="300" step="1" value="${INITIAL.duration}">
+        <label class="proj01-check"><input id="proj01-heading" type="checkbox" checked>朝向前進方向</label>
+        <button id="proj01-start" type="button">開始沿路徑移動</button>
       </fieldset>
-      <fieldset id="test01-view" disabled>
+      <fieldset id="proj01-view" disabled>
         <legend>路徑與鏡頭</legend>
-        <label class="test01-check"><input id="test01-path" type="checkbox" checked>顯示規劃路線</label>
-        <button id="test01-follow" type="button">鏡頭跟隨模型</button>
-        <button id="test01-release" type="button" disabled>解除跟隨</button>
+        <label class="proj01-check"><input id="proj01-path" type="checkbox" checked>顯示規劃路線</label>
+        <button id="proj01-follow" type="button">鏡頭跟隨模型</button>
+        <button id="proj01-release" type="button" disabled>解除跟隨</button>
       </fieldset>
-      <p class="test01-note">每次移動從路徑起點出發。移動完成後可再調整模型或重播。</p>
-      <p class="test01-note">選用服務回傳的第一條候選路線；標記是貼合道路後的起終點。高度取目前設定，並非真實道路或橋梁高度；秒數是展示時間，不是行車時間。</p>
+      <p class="proj01-note">每次移動從路徑起點出發。移動完成後可再調整模型或重播。</p>
+      <p class="proj01-note">選用服務回傳的第一條候選路線；標記是貼合道路後的起終點。高度取目前設定，並非真實道路或橋梁高度；秒數是展示時間，不是行車時間。</p>
     </aside>
   `;
   const ui = Object.fromEntries(["status", "error", "settings", "motion", "view", "height", "rotation", "scale", "reset", "duration", "heading", "start", "path", "follow", "release", "route", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan"]
-    .map((name) => [name, document.getElementById(`test01-${name}`)]));
+    .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   let model;
   let sdk;
@@ -257,7 +257,7 @@ export async function init() {
     try {
       for (const [index, point] of [path[0], path.at(-1)].entries()) {
         const icon = document.createElement("span");
-        icon.className = `test01-route-marker ${index ? "test01-route-end" : "test01-route-origin"}`;
+        icon.className = `proj01-route-marker ${index ? "proj01-route-end" : "proj01-route-origin"}`;
         icon.textContent = index ? "終" : "起";
         nextMarkers.push(new sdk.Marker({ position: point.slice(0, 2), altitude: height, icon, title: index ? "道路路線終點" : "道路路線起點" }));
       }
@@ -453,7 +453,7 @@ export async function init() {
     } else ui["route-status"].textContent = "目前 SDK 未提供 DirectionsService，無法規劃路線。";
     let expired = false;
     const loading = map.three.add3dModel({
-      id: "test01-model", obj: MODEL_URL, type: "gltf", coordinates: [...DEFAULT_ORIGIN, INITIAL.height],
+      id: "proj01-model", obj: MODEL_URL, type: "gltf", coordinates: [...DEFAULT_ORIGIN, INITIAL.height],
       rotation: { ...INITIAL_ROTATION }, scale: INITIAL.scale, anchor: "bottom",
     }).then((loaded) => {
       // 逾時後才到達的模型不啟用控制，避免畫面與載入狀態不一致。

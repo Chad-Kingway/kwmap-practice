@@ -13,15 +13,15 @@ node --test tests/*.test.js
 也可以只執行其中一個檔案：
 
 ```sh
-node --test tests/test01-route.test.js
-node --test tests/test01-flow.test.js
+node --test tests/proj01-route.test.js
+node --test tests/proj01-flow.test.js
 ```
 
 ## 路線資料測試
 
-檔案：[tests/test01-route.test.js](test01-route.test.js)
+檔案：[tests/proj01-route.test.js](proj01-route.test.js)
 
-受測程式：[src/examples/test01-route.js](../src/examples/test01-route.js) 的 `validateEndpoints()` 與 `normalizeDirections()`。
+受測程式：[src/examples/proj01-route.js](../src/examples/proj01-route.js) 的 `validateEndpoints()` 與 `normalizeDirections()`。
 
 - 檢查起終點座標是否有效，且不能相同。
 - 按順序接起路段，移除相鄰重複點，保留繞行路線。
@@ -31,9 +31,9 @@ node --test tests/test01-flow.test.js
 
 ## 查詢與播放流程測試
 
-檔案：[tests/test01-flow.test.js](test01-flow.test.js)
+檔案：[tests/proj01-flow.test.js](proj01-flow.test.js)
 
-受測程式：[src/examples/test01.js](../src/examples/test01.js)，搭配路線驗證與整理函式。
+受測程式：[src/examples/proj01.js](../src/examples/proj01.js)，搭配路線驗證與整理函式。
 
 使用模擬的畫面控制項與 SDK，檢查以下流程：
 

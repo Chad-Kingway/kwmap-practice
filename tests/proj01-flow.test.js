@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import { normalizeDirections, validateEndpoints } from "../src/examples/test01-route.js";
+import { normalizeDirections, validateEndpoints } from "../src/examples/proj01-route.js";
 
 // 隔離外部服務與渲染，只檢查查詢競態、控制狀態及有效路線的替換流程。
 async function setup() {
@@ -23,7 +23,7 @@ async function setup() {
       Object.assign(node(attributes.id), attributes);
     }
   } });
-  const ui = (name) => node(`test01-${name}`);
+  const ui = (name) => node(`proj01-${name}`);
   const model = {
     coordinates: [121.561, 25.0334, 0], playback: null,
     setCoordinates(point) { this.coordinates = [...point]; }, setRotation() {}, setScale() {},
@@ -50,7 +50,7 @@ async function setup() {
     setTimeout: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: () => ++nextTimer, cancelAnimationFrame() {},
   });
-  const source = fs.readFileSync(new URL("../src/examples/test01.js", import.meta.url), "utf8")
+  const source = fs.readFileSync(new URL("../src/examples/proj01.js", import.meta.url), "utf8")
     .replace(/^import .*;\r?\n/gm, "").replace("export async function init", "async function init");
   await vm.runInContext(`${source}\ninit()`, context);
   const result = (points, summary = "測試路線") => [{ summary, legs: [{ steps: [{
