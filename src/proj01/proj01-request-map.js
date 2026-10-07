@@ -23,6 +23,7 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
       const selected = request.id === requestList.selectedRequestId;
       for (const { icon } of markers.get(request.id) ?? []) {
         icon.classList.toggle("proj01-request-selected", selected);
+        icon.classList.toggle("proj01-request-completed", request.status === "completed");
       }
       drawRoute(request);
     }
@@ -50,6 +51,7 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
   }
   map.redraw();
   const unsubscribe = requestList.subscribeSelection(updateSelection);
+  const unsubscribeStatus = requestList.subscribeChange(({ type }) => { if (type === "status") updateSelection(); });
   const query = (request) => new Promise((resolve, reject) => {
     let finished = false;
     const finish = (error, response) => {
@@ -105,6 +107,7 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
       if (disposed) return;
       disposed = true;
       unsubscribe();
+      unsubscribeStatus();
       cancelPending?.();
       for (const endpoints of markers.values()) for (const { marker } of endpoints) marker.remove();
       for (const id of lineIds) map.three.remove3dObjectById(id);

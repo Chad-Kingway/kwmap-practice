@@ -78,3 +78,6 @@
 .proj01-request-route-status:empty { display: none; }
 .proj01-request-marker { display: inline-flex; align-items: center; justify-content: center; min-width: 42px; padding: 4px 6px; border: 2px solid white; border-radius: 14px; box-shadow: 0 2px 6px #0005; color: white; font: bold 12px sans-serif; }
 .proj01-request-marker.proj01-request-selected { outline: 3px solid #111827; outline-offset: 2px; }
+
+.proj01-request-marker.proj01-request-completed::after { content: "✓"; margin-left: 3px; }
+#proj01-vehicle-status { margin: 0 0 8px; color: #526075; }
