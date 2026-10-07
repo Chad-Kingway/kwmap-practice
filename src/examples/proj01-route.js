@@ -48,5 +48,9 @@ export function normalizeDirections(routes, decodePolyline) {
     }
   }
   if (coordinates.length < 2) throw new Error("路線至少需要兩個不同位置。");
-  return { coordinates, candidates: routes.length, summary: typeof route.summary === "string" ? route.summary : "汽車路線" };
+  return {
+    coordinates,
+    candidates: routes.length,
+    summary: typeof route.summary === "string" ? route.summary : "汽車路線"
+  };
 }
