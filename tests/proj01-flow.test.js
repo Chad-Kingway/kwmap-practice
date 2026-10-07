@@ -130,7 +130,6 @@ test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播�
   assert.equal(h.ui("duration").disabled, true);
   assert.equal(h.ui("start").disabled, true);
   assert.equal(h.ui("follow").disabled, false);
-  assert.equal(h.ui("release").disabled, true);
   assert.equal(h.ui("route-query").disabled, true);
   assert.equal(h.ui("route").disabled, false);
   assert.equal(h.ui("path").disabled, false);
@@ -220,13 +219,12 @@ test("地圖左鍵拖曳解除跟隨，取消待鎖定回呼且不中斷播放",
   staleLock(); h.frame();
   assert.equal(h.camera.locks, 0, "取消待鎖定且過期回呼不能重新鎖定");
   assert.equal(h.ui("follow").disabled, false);
-  assert.equal(h.ui("release").disabled, true);
 
   const points = [[121.561, 25.0334], [121.562, 25.034]];
   const planning = h.plan(); h.queries[0].callback(h.result(points), "OK"); await planning;
   for (let replay = 0; replay < 2; replay++) {
     h.ui("follow").handlers.click(); h.frame();
-    assert.equal(h.ui("release").disabled, false);
+    assert.equal(h.ui("follow").disabled, true);
     h.ui("start").handlers.click();
     const playback = h.model.playback, locks = h.camera.locks;
     if (replay === 1) h.frame(); // 分別驗證等待重鎖及已重鎖的播放。
@@ -234,7 +232,6 @@ test("地圖左鍵拖曳解除跟隨，取消待鎖定回呼且不中斷播放",
     pointer("pointerdown"); pointer("pointermove", { clientX: 110 });
     h.frame();
     assert.equal(h.ui("follow").disabled, false);
-    assert.equal(h.ui("release").disabled, true);
     assert.equal(h.camera.locks, locks + (replay === 1 ? 1 : 0));
     assert.equal(h.camera.releases, releases + (replay === 1 ? 1 : 0));
     assert.equal(h.model.playing, true);

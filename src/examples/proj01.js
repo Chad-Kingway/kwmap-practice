@@ -101,7 +101,6 @@ export async function init() {
         <button id="proj01-start" type="button">開始沿路徑移動</button>
         <button id="proj01-follow" type="button" aria-describedby="proj01-follow-hint">鏡頭跟隨模型</button>
         <p id="proj01-follow-hint" class="proj01-note">跟隨中，第一次按住左鍵拖曳可解除跟隨；再次拖曳即可移動地圖。</p>
-        <button id="proj01-release" type="button" disabled>解除跟隨</button>
       </fieldset>
       <p class="proj01-note">規劃完成即朝向道路起始方向，但不自動播放。播放時固定沿當下前進方向轉向；每次重播從路線起點出發。</p>
       <p class="proj01-note">選用服務回傳的第一條候選路線；標記是貼合道路後的起終點。高度取目前設定，並非真實道路或橋梁高度；秒數是展示時間，不是行車時間。</p>
@@ -114,7 +113,7 @@ export async function init() {
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });
   disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
-  const ui = Object.fromEntries(["status", "error", "settings", "motion", "height", "scale", "reset", "duration", "start", "path", "follow", "release", "route", "route-query", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan"]
+  const ui = Object.fromEntries(["status", "error", "settings", "motion", "height", "scale", "reset", "duration", "start", "path", "follow", "route", "route-query", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   let model;
@@ -144,7 +143,7 @@ export async function init() {
   const clearError = () => { ui.error.hidden = true; ui.error.textContent = ""; };
   const syncControls = () => {
     ui.settings.disabled = !ready || moving || routing;
-    // 跟隨操作與播放控制分開停用，播放或查詢中仍可跟隨／解除。
+    // 跟隨操作與播放控制分開停用，播放或查詢中仍可啟用跟隨。
     ui.motion.disabled = !ready;
     ui.duration.disabled = moving || routing;
     // 路線顯示獨立於查詢控制，查詢與播放期間仍可切換。
@@ -152,7 +151,6 @@ export async function init() {
     ui["route-query"].disabled = !ready || moving || routing || !directions;
     ui.start.disabled = moving || routing || activePath.length < 2;
     ui.follow.disabled = wantsFollow || cameraLocked;
-    ui.release.disabled = !wantsFollow && !cameraLocked;
   };
   const number = (input) => {
     if (!input.checkValidity() || input.value === "" || !Number.isFinite(input.valueAsNumber)) {
@@ -407,7 +405,6 @@ export async function init() {
     if (!moving || movementStarted) scheduleLock();
     syncControls();
   }));
-  ui.release.addEventListener("click", action(releaseFollow));
   ui.start.addEventListener("click", action(() => {
     if (moving || routing) return;
     if (activePath.length < 2) throw new Error("請先成功規劃一條有效路線。");
