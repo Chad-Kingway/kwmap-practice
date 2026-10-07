@@ -3,4 +3,5 @@
 - 需要查閱勤崴 3D Map SDK API 時，請參考官方 API 文件：https://kw3dmap.localking.com.tw/3dmap/api/intro
 - README、docs、註解及 Git commit message 使用繁體中文。
 - 每次改動完成後建立 Git commit，並簡單說明人工測試方式。
-- `docs/` 保持少量文件，需要時才新增。
+- 'docs/' 保持少量文件，需要時才新增。
+- 'tests/TESTING.md' 以盡量簡單的方式講述檔案在做什麼測試

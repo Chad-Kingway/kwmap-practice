@@ -112,14 +112,12 @@ export async function init() {
         <label class="test01-check"><input id="test01-path" type="checkbox" checked>顯示規劃路線</label>
         <button id="test01-follow" type="button">鏡頭跟隨模型</button>
         <button id="test01-release" type="button" disabled>解除跟隨</button>
-        <p id="test01-camera-status" class="test01-note" role="status" aria-live="polite">鏡頭未跟隨。</p>
-        <p class="test01-note">鏡頭從模型後上方沿路徑方向看。未勾選「朝向前進方向」時，不保證視角與素材車頭一致；手動車頭角度不是地理方位角。</p>
       </fieldset>
       <p class="test01-note">每次移動從路徑起點出發。移動完成後可再調整模型或重播。</p>
       <p class="test01-note">選用服務回傳的第一條候選路線；標記是貼合道路後的起終點。高度取目前設定，並非真實道路或橋梁高度；秒數是展示時間，不是行車時間。</p>
     </aside>
   `;
-  const ui = Object.fromEntries(["status", "error", "settings", "motion", "view", "height", "rotation", "scale", "reset", "duration", "heading", "start", "path", "follow", "release", "camera-status", "route", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan"]
+  const ui = Object.fromEntries(["status", "error", "settings", "motion", "view", "height", "rotation", "scale", "reset", "duration", "heading", "start", "path", "follow", "release", "route", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan"]
     .map((name) => [name, document.getElementById(`test01-${name}`)]));
   let map;
   let model;
@@ -154,9 +152,6 @@ export async function init() {
     ui.view.disabled = !ready;
     ui.follow.disabled = wantsFollow || cameraLocked;
     ui.release.disabled = !wantsFollow && !cameraLocked;
-    ui["camera-status"].textContent = cameraLocked
-      ? (wantsFollow ? "鏡頭已鎖定模型，沿前進方向跟隨。" : "鏡頭解除失敗，請再次解除跟隨。")
-      : (wantsFollow ? "已啟用跟隨，正在等待重新鎖定。" : "鏡頭未跟隨。");
   };
   const number = (input) => {
     if (!input.checkValidity() || input.value === "" || !Number.isFinite(input.valueAsNumber)) {
