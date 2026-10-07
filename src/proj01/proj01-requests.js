@@ -1,11 +1,14 @@
 export function mountRequestList(container) {
-  // 預製座標僅作需求資料，尚未向道路服務確認可用路線。
+  // 預製座標不預先保證道路可用性，路線載入狀態與接送狀態分開管理。
   const requests = [
     { id: "request-01", origin: [121.561, 25.0334], destination: [121.567, 25.034], color: "#175cd3", status: "pending" },
     { id: "request-02", origin: [121.543, 25.041], destination: [121.553, 25.045], color: "#15803d", status: "pending" },
     { id: "request-03", origin: [121.517, 25.047], destination: [121.532, 25.052], color: "#c2410c", status: "pending" },
   ];
   let selectedRequestId = null;
+  const selectionListeners = new Set();
+  const routeStates = new Map();
+  const routeLabels = { loading: "路線查詢中…", ready: "", unavailable: "路線不可用", error: "路線查詢失敗" };
   const render = () => {
     container.innerHTML = requests.map((request, index) => `
       <label class="proj01-request">
@@ -14,6 +17,7 @@ export function mountRequestList(container) {
           <span class="proj01-request-heading"><span class="proj01-request-color" style="background-color: ${request.color}" aria-hidden="true"></span><strong>需求 ${String(index + 1).padStart(2, "0")}</strong><span class="proj01-request-status">${request.status === "pending" ? "等待接送" : ""}</span></span>
           <span class="proj01-request-coordinate">起點 ${request.origin.join(", ")}</span>
           <span class="proj01-request-coordinate">終點 ${request.destination.join(", ")}</span>
+          <span data-request-route="${request.id}" class="proj01-request-route-status" role="status">${routeLabels[routeStates.get(request.id)?.status] ?? ""}</span>
         </span>
       </label>
     `).join("");
@@ -22,13 +26,33 @@ export function mountRequestList(container) {
     const input = event.target;
     if (input.type !== "radio" || input.name !== "proj01-request" || !input.checked
       || !requests.some((request) => request.id === input.value)) return;
+    if (selectedRequestId === input.value) return;
     selectedRequestId = input.value;
+    for (const listener of selectionListeners) listener(selectedRequestId);
   };
   render();
   container.addEventListener("change", select);
   return {
+    requests,
     get selectedRequestId() { return selectedRequestId; },
+    getRouteState: (id) => routeStates.get(id),
+    setRouteState(id, state) {
+      routeStates.set(id, state);
+      // 只更新路線提示，不重建 radio，保留鍵盤操作中的焦點。
+      const element = container.querySelector(`[data-request-route="${id}"]`);
+      if (element) {
+        element.textContent = routeLabels[state.status] ?? "";
+        element.title = state.error ?? "";
+      }
+    },
+    subscribeSelection(listener) {
+      selectionListeners.add(listener);
+      return () => selectionListeners.delete(listener);
+    },
     render,
-    dispose: () => container.removeEventListener("change", select),
+    dispose() {
+      container.removeEventListener("change", select);
+      selectionListeners.clear();
+    },
   };
 }

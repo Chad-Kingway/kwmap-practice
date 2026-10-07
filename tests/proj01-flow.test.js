@@ -7,18 +7,21 @@ import { normalizeDirections, validateEndpoints, parseCoordinate } from "../src/
 import { geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix } from "../src/proj01/proj01-heading.js";
 
 // 隔離外部服務與渲染，只檢查查詢競態、控制狀態及有效路線的替換流程。
-async function setup() {
+async function setup({ manualRequests = false } = {}) {
   const nodes = new Map(), timers = new Map(), queries = [], markers = [], lines = new Map(), frames = new Map();
-  const camera = { locks: 0, releases: 0 };
+  const camera = { locks: 0, releases: 0, moves: 0 };
   const renderedLines = new Map();
   let instance;
   let requestList;
+  let requestMap;
+  const requestQueries = [], requestMarkers = [], requestLines = new Map();
   let nextTimer = 0;
   const node = (id) => {
     if (!nodes.has(id)) nodes.set(id, {
       value: "", checked: true, disabled: false, hidden: true, textContent: "", handlers: {}, listeners: {}, attributes: {},
       classList: { add() {}, remove() {} },
       contains(target) { return target === this; },
+      querySelector(selector) { return node(selector); },
       setAttribute(name, value) { this.attributes[name] = value; },
       get valueAsNumber() { return this.value === "" ? NaN : Number(this.value); },
       checkValidity() { return Number.isFinite(this.valueAsNumber) && this.valueAsNumber >= Number(this.min) && this.valueAsNumber <= Number(this.max); },
@@ -61,18 +64,19 @@ async function setup() {
   };
   class SDK {
     static DirectionsService = class { route(options, callback) { queries.push({ options, callback }); } };
-    static Marker = class { constructor(options) { this.options = options; this.removed = false; markers.push(this); } remove() { this.removed = true; } };
+    static Marker = class { constructor(options) { this.options = options; this.removed = false; (options.icon.className === "proj01-request-marker" ? requestMarkers : markers).push(this); } remove() { this.removed = true; } };
     constructor() {
       instance = this;
       this.three = {
         add3dModel: (options) => { model.creationOptions = options; return Promise.resolve(model); },
-        add3dLine: (options) => lines.set(options.id, options), remove3dObjectById: (id) => lines.delete(id),
+        add3dLine: (options) => (options.id.startsWith("proj01-request-route-") ? requestLines : lines).set(options.id, options),
+        remove3dObjectById: (id) => (id.startsWith("proj01-request-route-") ? requestLines : lines).delete(id),
         fixedCameraToModel() { camera.locks++; }, releaseCamera() { camera.releases++; },
       };
     }
     on(event, callback) { if (event === "style.load") callback(); else this.click = callback; }
     off(event, callback) { if (event === "click" && this.click === callback) this.click = null; }
-    offLayer() {} jumpTo() {}
+    offLayer() {} jumpTo() { camera.moves++; }
     redraw() {
       renderedLines.clear();
       for (const [id, line] of lines) renderedLines.set(id, line);
@@ -80,7 +84,7 @@ async function setup() {
     decodePolyline(encoded) { return JSON.parse(encoded); }
   }
   const context = vm.createContext({
-    document: { getElementById: node, createElement: () => ({}) }, window: Object.assign(node("window"), { location: { origin: "http://localhost" } }),
+    document: { getElementById: node, createElement: () => ({ style: {}, classList: { toggle(name, selected) { this[name] = selected; } } }) }, window: Object.assign(node("window"), { location: { origin: "http://localhost" } }),
     fetch: async () => ({ ok: true, headers: { get: () => "model/gltf+json" }, json: async () => ({ asset: { version: "2.0" } }) }),
     AbortSignal, loadSdk: async () => SDK, accessKey: "測試", accessToken: "測試",
     mountRequestList: (container) => (requestList = mountRequestList(container)),
@@ -90,13 +94,25 @@ async function setup() {
   });
   const source = fs.readFileSync(new URL("../src/proj01/proj01.js", import.meta.url), "utf8")
     .replace(/^import .*;\r?\n/gm, "").replace("export async function init", "async function init");
+  const mapSource = fs.readFileSync(new URL("../src/proj01/proj01-request-map.js", import.meta.url), "utf8")
+    .replace(/^import .*;\r?\n/gm, "").replace("export function mountRequestMap", "function mountRequestMap");
+  const mountMap = vm.runInContext(mapSource + "\nmountRequestMap", context);
+  context.mountRequestMap = (options) => {
+    const directions = { route(query, callback) {
+      requestQueries.push({ options: query, callback });
+      if (!manualRequests) callback([{ legs: [{ steps: [{ polyline: { points: JSON.stringify([query.origin, query.destination]) },
+        start_location: { lng: query.origin[0], lat: query.origin[1] }, end_location: { lng: query.destination[0], lat: query.destination[1] } }] }] }], "OK");
+    } };
+    return requestMap = mountMap({ ...options, directions });
+  };
   await vm.runInContext(`${source}\ninit()`, context);
+  if (!manualRequests) await requestMap.loading;
   const result = (points, summary = "測試路線") => [{ summary, legs: [{ steps: [{
     polyline: { points: JSON.stringify(points) },
     start_location: { lng: points[0][0], lat: points[0][1] },
     end_location: { lng: points.at(-1)[0], lat: points.at(-1)[1] },
   }] }] }];
-  return { ui, nodes, timers, queries, markers, lines, renderedLines, model, result, camera, frames, requestList,
+  return { ui, nodes, timers, queries, markers, lines, renderedLines, model, result, camera, frames, requestList, requestMap, requestQueries, requestMarkers, requestLines,
     click: (lng, lat, overrides = {}) => instance.click({ lngLat: { lng, lat }, originalEvent: { button: 0, target: node("map"), ...overrides } }),
     frame: () => { const batch = [...frames.values()]; frames.clear(); for (const fn of batch) fn(); },
     plan: () => ui("plan").handlers.click() };
@@ -442,6 +458,9 @@ test("需求選取與重繪保留唯一識別碼，不改變車輛、鏡頭或�
   assert.equal(h.requestList.selectedRequestId, "request-03");
   assert.match(list.innerHTML, /value="request-03" checked/);
   assert.equal(h.queries.length, 1);
+  assert.equal(h.requestQueries.length, 3, "切換需求不重查道路路線");
+  assert.equal(h.requestLines.size, 3);
+  assert.equal(h.requestMarkers.filter(marker => !marker.removed).length, 6);
   assert.equal(h.ui("origin").value, before.origin);
   assert.equal(h.ui("destination").value, before.destination);
   assert.deepEqual(h.model.coordinates, before.position);
@@ -454,4 +473,61 @@ test("需求選取與重繪保留唯一識別碼，不改變車輛、鏡頭或�
   assert.deepEqual([...h.frames], before.frames);
   h.requestList.dispose();
   assert.equal(list.listeners.change.size, 0);
+});
+
+test("需求路線依序查詢，逾時與失敗獨立，選取及釋放不接受過期回應", async () => {
+  const h = await setup({ manualRequests: true });
+  const list = h.ui("request-list");
+  const select = (id) => list.handlers.change({ target: { type: "radio", name: "proj01-request", value: id, checked: true } });
+  const [first, second, third] = h.requestList.requests;
+  assert.equal(h.requestQueries.length, 1);
+  assert.equal(h.requestMarkers.length, 6);
+  select(second.id);
+  assert.ok(h.requestMarkers.slice(2, 4).every(marker => marker.options.icon.classList["proj01-request-selected"]));
+  const timeout = [...h.timers.values()].find(({ delay }) => delay === 20000);
+  timeout.fn();
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(h.requestList.getRouteState(first.id).status, "error");
+  assert.equal(h.requestQueries.length, 2);
+  h.requestQueries[0].callback(h.result([first.origin, first.destination]), "OK");
+  await Promise.resolve();
+  assert.equal(h.requestLines.size, 0, "逾時回應不可補畫路線");
+  const points = [second.origin, [121.546, 25.044], second.destination];
+  h.requestQueries[1].callback(h.result(points), "OK");
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(h.requestQueries.length, 3);
+  const id = "proj01-request-route-" + second.id;
+  assert.equal(h.requestLines.get(id).width, 7, "載入完成採用當下選取");
+  assert.deepEqual(JSON.parse(JSON.stringify(h.requestLines.get(id).coordinates)), points.map(point => [...point, 0]));
+  assert.deepEqual(h.requestList.getRouteState(second.id).coordinates, points);
+  h.requestQueries[2].callback([], "OK");
+  await h.requestMap.loading;
+  assert.equal(h.requestList.getRouteState(third.id).status, "unavailable");
+  assert.ok(h.requestList.requests.every(request => request.status === "pending"));
+  assert.equal(h.requestLines.size, 1);
+  assert.equal(h.requestMarkers.filter(marker => !marker.removed).length, 6);
+  select(first.id);
+  assert.equal(h.requestLines.get(id).width, 3);
+  assert.equal(h.requestQueries.length, 3);
+  assert.equal(h.timers.size, 0);
+  const planning = h.plan();
+  h.queries[0].callback(h.result([first.origin, first.destination]), "OK"); await planning;
+  h.ui("path").checked = false; h.ui("path").handlers.change();
+  h.ui("path").checked = true; h.ui("path").handlers.change();
+  assert.equal(h.requestLines.size, 1, "車輛路線切換保留需求圖層");
+  assert.equal(h.requestMarkers.filter(marker => !marker.removed).length, 6);
+  h.requestMap.dispose(); h.requestMap.dispose();
+  assert.equal(h.requestLines.size, 0);
+  assert.equal(h.requestMarkers.filter(marker => !marker.removed).length, 0);
+  select(second.id);
+  assert.equal(h.requestLines.size, 0);
+
+  const pending = await setup({ manualRequests: true });
+  pending.requestMap.dispose();
+  await pending.requestMap.loading;
+  pending.requestQueries[0].callback(pending.result([first.origin, first.destination]), "OK");
+  await Promise.resolve();
+  assert.equal(pending.requestQueries.length, 1, "釋放後不繼續查下一筆");
+  assert.equal(pending.timers.size, 0);
+  assert.equal(pending.requestLines.size, 0);
 });

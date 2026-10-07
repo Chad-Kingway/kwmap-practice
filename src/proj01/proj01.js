@@ -3,6 +3,7 @@ import { loadSdk } from "../sdk.js";
 import { normalizeDirections, validateEndpoints, parseCoordinate } from "./proj01-route.js";
 import { geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix } from "./proj01-heading.js";
 import { mountRequestList } from "./proj01-requests.js";
+import { mountRequestMap } from "./proj01-request-map.js";
 import "./proj01.css";
 
 const MODEL_URL = "/models/car/scene.gltf";
@@ -20,6 +21,8 @@ let disposePanelWheel;
 let disposeMapDrag;
 let disposeMapPick;
 let disposeRequests;
+let disposeRequestMap;
+let requestMapVersion = 0;
 
 async function checkModelAssets() {
   const response = await fetch(MODEL_URL, { signal: AbortSignal.timeout(15000) });
@@ -57,6 +60,8 @@ export async function init() {
   disposePanelWheel?.();
   disposeMapDrag?.();
   disposeMapPick?.();
+  const requestMapRun = ++requestMapVersion;
+  disposeRequestMap?.();
   disposeRequests?.();
   document.title = "proj01：3D 模型與路徑實驗室";
   const app = document.getElementById("app");
@@ -528,6 +533,15 @@ export async function init() {
     if (typeof sdk.DirectionsService === "function") {
       try { directions = new sdk.DirectionsService(map); }
       catch (error) {  }
+    }
+    // 需求圖層不等待模型，也不影響車輛初始化；重複初始化的舊工作不得重建圖層。
+    if (requestMapRun === requestMapVersion) {
+      try {
+        const requestMap = mountRequestMap({ map, sdk, directions, requestList });
+        disposeRequestMap = requestMap.dispose;
+      } catch (error) {
+        for (const request of requestList.requests) requestList.setRouteState(request.id, { status: "error", error: error.message });
+      }
     }
     let expired = false;
     const loading = map.three.add3dModel({
