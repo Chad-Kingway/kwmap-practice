@@ -7,7 +7,7 @@ import "./proj01.css";
 const MODEL_URL = "/models/car/scene.gltf";
 // 請不要改INITIAL_ROTATION
 const INITIAL_ROTATION = { x: 90, y: 180, z: 0 };
-const INITIAL = { height: 0, scale: 10, duration: 10 };
+const INITIAL = { scale: 10, duration: 10 };
 const FOLLOW_CAMERA = { pitch: 65, zoom: 18 };
 const DEFAULT_ORIGIN = [121.561, 25.0334];
 const DEFAULT_DESTINATION = [121.567, 25.034];
@@ -90,8 +90,6 @@ export async function init() {
       <p id="proj01-route-status" role="status" aria-live="polite">尚未規劃路線。</p>
       <fieldset id="proj01-settings" disabled>
         <legend>模型設定</legend>
-        <label for="proj01-height">高度</label>
-        <input id="proj01-height" type="number" min="0" max="500" step="1" value="${INITIAL.height}">
         <label for="proj01-scale">整體比例</label>
         <input id="proj01-scale" type="number" min="0.1" max="1000" step="0.1" value="${INITIAL.scale}">
         <button id="proj01-reset" type="button">還原模型初始設定</button>
@@ -105,7 +103,7 @@ export async function init() {
         <p id="proj01-follow-hint" class="proj01-note">跟隨中，第一次按住左鍵拖曳可解除跟隨；再次拖曳即可移動地圖。</p>
       </fieldset>
       <p class="proj01-note">規劃完成即朝向道路起始方向，但不自動播放。播放時固定沿當下前進方向轉向；每次重播從路線起點出發。</p>
-      <p class="proj01-note">選用服務回傳的第一條候選路線；標記是貼合道路後的起終點。高度取目前設定，並非真實道路或橋梁高度；秒數是展示時間，不是行車時間。</p>
+      <p class="proj01-note">選用服務回傳的第一條候選路線；標記是貼合道路後的起終點。模型與路線使用地面基準高度 0，並非真實道路或橋梁高度；秒數是展示時間，不是行車時間。</p>
     </aside>
     <div id="map" aria-label="3D 地圖"></div>
     </div>
@@ -115,7 +113,7 @@ export async function init() {
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });
   disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
-  const ui = Object.fromEntries(["status", "error", "settings", "motion", "height", "scale", "reset", "duration", "start", "path", "follow", "route", "route-query", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan", "select-origin", "select-destination", "pick-status"]
+  const ui = Object.fromEntries(["status", "error", "settings", "motion", "scale", "reset", "duration", "start", "path", "follow", "route", "route-query", "route-status", "origin-lng", "origin-lat", "destination-lng", "destination-lat", "plan", "select-origin", "select-destination", "pick-status"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   let model;
@@ -137,7 +135,7 @@ export async function init() {
   let travelBearing = 0;
   let ready = false;
   let pickMode = null;
-  let position = [...DEFAULT_ORIGIN, INITIAL.height];
+  let position = [...DEFAULT_ORIGIN, 0];
   const status = (message) => { ui.status.textContent = message; };
   const showError = (error) => {
     ui.error.textContent = error.message || String(error);
@@ -169,9 +167,9 @@ export async function init() {
     // 設定目標 Z 角度；不累加、不重複套用素材校正，播放中只由 SDK 控制旋轉。
     model.setRotation({ x: 0, y: 0, z: modelRotationFromBearing(bearing) });
   };
-  const placeAtRouteStart = (path, height) => {
+  const placeAtRouteStart = (path) => {
     const bearing = initialPathBearing(path);
-    const start = [path[0][0], path[0][1], height];
+    const start = [path[0][0], path[0][1], 0];
     model.setCoordinates(start);
     setBearing(bearing);
     position = [...start];
@@ -251,13 +249,12 @@ export async function init() {
     status("無法開始路徑移動，請檢查錯誤後重試。");
     showError(error);
   };
-  const pathAtHeight = () => activePath.map(([lng, lat]) => [lng, lat, number(ui.height)]);
+  const groundPath = () => activePath.map(([lng, lat]) => [lng, lat, 0]);
   const updateLine = () => {
     map.three.remove3dObjectById(lineId);
     if (ui.path.checked && activePath.length >= 2) {
-      map.three.add3dLine({ id: lineId, coordinates: pathAtHeight(), color: "#ff7a18", width: 5 });
+      map.three.add3dLine({ id: lineId, coordinates: groundPath(), color: "#ff7a18", width: 5 });
     }
-    for (const marker of routeMarkers) marker.setAltitude(number(ui.height));
   };
   const action = (fn) => () => {
     if (!ready) return;
@@ -369,20 +366,20 @@ export async function init() {
       syncControls();
     }));
   }
-  const installRoute = (data, request, height) => {
+  const installRoute = (data, request) => {
     const nextLine = `${LINE_ID}-${request}`;
     const nextMarkers = [];
-    const path = data.coordinates.map(([lng, lat]) => [lng, lat, height]);
+    const path = data.coordinates.map(([lng, lat]) => [lng, lat, 0]);
     try {
       for (const [index, point] of [path[0], path.at(-1)].entries()) {
         const icon = document.createElement("span");
         icon.className = `proj01-route-marker ${index ? "proj01-route-end" : "proj01-route-origin"}`;
         icon.textContent = index ? "終" : "起";
-        nextMarkers.push(new sdk.Marker({ position: point.slice(0, 2), altitude: height, icon, title: index ? "道路路線終點" : "道路路線起點" }));
+        nextMarkers.push(new sdk.Marker({ position: point.slice(0, 2), altitude: 0, icon, title: index ? "道路路線終點" : "道路路線起點" }));
       }
       if (ui.path.checked) map.three.add3dLine({ id: nextLine, coordinates: path, color: "#ff7a18", width: 5 });
       releaseLock();
-      placeAtRouteStart(path, height);
+      placeAtRouteStart(path);
     } catch (error) {
       map.three.remove3dObjectById(nextLine);
       for (const marker of nextMarkers) marker.remove();
@@ -404,14 +401,12 @@ export async function init() {
     clearError();
     let origin;
     let destination;
-    let height;
     try {
       origin = [number(ui["origin-lng"]), number(ui["origin-lat"])];
       destination = [number(ui["destination-lng"]), number(ui["destination-lat"])];
       validateEndpoints(origin, destination);
-      height = number(ui.height);
     } catch (error) {
-      ui["route-status"].textContent = "查詢未送出，請修正起終點或模型設定。";
+      ui["route-status"].textContent = "查詢未送出，請修正起終點。";
       showError(error);
       return;
     }
@@ -433,7 +428,7 @@ export async function init() {
       }
       if (routeStatus !== "OK") throw new Error(`路線服務回傳失敗狀態：${String(routeStatus)}。`);
       const data = normalizeDirections(candidates, (encoded) => map.decodePolyline(encoded));
-      installRoute(data, request, height);
+      installRoute(data, request);
       ui["route-status"].textContent = `規劃成功：${data.summary}，${data.coordinates.length} 個幾何點；選用 ${data.candidates} 條候選中的第一條。請另按開始播放。`;
       status("模型已移到道路路線起點並朝向起始前進方向，尚未開始移動。");
     } catch (error) {
@@ -449,12 +444,6 @@ export async function init() {
     }
   });
 
-  ui.height.addEventListener("change", action(() => {
-    if (moving) return;
-    position[2] = number(ui.height);
-    model.setCoordinates([...position]);
-    updateLine();
-  }));
   ui.scale.addEventListener("change", action(() => {
     // SDK 以新增模型時的比例為基準，因此將 UI 的整體比例換成相對倍率。
     if (!moving) model.setScale(number(ui.scale) / INITIAL.scale);
@@ -462,19 +451,18 @@ export async function init() {
   ui.reset.addEventListener("click", action(() => {
     if (moving) return;
     releaseLock();
-    for (const key of ["height", "scale"]) ui[key].value = INITIAL[key];
-    if (activePath.length >= 2) placeAtRouteStart(activePath, INITIAL.height);
+    ui.scale.value = INITIAL.scale;
+    if (activePath.length >= 2) placeAtRouteStart(activePath);
     else {
-      position = [...DEFAULT_ORIGIN, INITIAL.height];
+      position = [...DEFAULT_ORIGIN, 0];
       model.setCoordinates([...position]);
       travelBearing = 0;
       setBearing(travelBearing);
     }
     model.setScale(1);
-    updateLine();
     if (wantsFollow) scheduleLock();
     syncControls();
-    status("已還原模型高度、方向、比例與起點位置。");
+    status("已還原模型方向、比例與起點位置。");
   }));
   ui.path.addEventListener("change", action(updateLine));
   ui.follow.addEventListener("click", action(() => {
@@ -489,7 +477,7 @@ export async function init() {
     if (moving || routing) return;
     if (activePath.length < 2) throw new Error("請先成功規劃一條有效路線。");
     const duration = number(ui.duration) * 1000;
-    const path = pathAtHeight();
+    const path = groundPath();
     cancelPick();
     const run = ++runVersion;
     // 先同步鎖定控制，再交給 SDK；只由官方 onEnd 回呼解除移動狀態。
@@ -500,7 +488,7 @@ export async function init() {
     try {
       releaseLock();
       cancelMovementFrame();
-      placeAtRouteStart(path, number(ui.height));
+      placeAtRouteStart(path);
       if (wantsFollow) prepareCamera();
       const playback = model.followPath({
         path, duration, trackHeading: true, curveOptions: { ...ROUTE_CURVE },
@@ -562,7 +550,7 @@ export async function init() {
     } else ui["route-status"].textContent = "目前 SDK 未提供 DirectionsService，無法規劃路線。";
     let expired = false;
     const loading = map.three.add3dModel({
-      id: "proj01-model", obj: MODEL_URL, type: "gltf", coordinates: [...DEFAULT_ORIGIN, INITIAL.height],
+      id: "proj01-model", obj: MODEL_URL, type: "gltf", coordinates: [...DEFAULT_ORIGIN, 0],
       rotation: { ...INITIAL_ROTATION }, scale: INITIAL.scale, anchor: "bottom",
     }).then((loaded) => {
       // 逾時後才到達的模型不啟用控制，避免畫面與載入狀態不一致。

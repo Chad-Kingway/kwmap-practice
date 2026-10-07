@@ -57,7 +57,7 @@ async function setup() {
   };
   class SDK {
     static DirectionsService = class { route(options, callback) { queries.push({ options, callback }); } };
-    static Marker = class { constructor(options) { this.options = options; this.removed = false; markers.push(this); } remove() { this.removed = true; } setAltitude() {} };
+    static Marker = class { constructor(options) { this.options = options; this.removed = false; markers.push(this); } remove() { this.removed = true; } };
     constructor() {
       instance = this;
       this.three = {
@@ -173,12 +173,18 @@ test("道路吸附起點、第一段方向、還原與重播一致，失敗不�
   const h = await setup();
   assert.equal(h.nodes.has("proj01-heading"), false);
   assert.equal(h.nodes.has("proj01-rotation"), false);
-  h.ui("height").value = "12";
+  assert.equal(h.nodes.has("proj01-height"), false);
+  assert.equal(h.model.creationOptions.coordinates[2], 0);
   const points = [[121.56, 25.03], [121.56, 25.03], [121.56, 25.031], [121.559, 25.031]];
   const request = h.plan();
   h.queries[0].callback(h.result(points), "OK");
   await request;
-  assert.deepEqual(h.model.coordinates, [...points[0], 12]);
+  assert.deepEqual(h.model.coordinates, [...points[0], 0]);
+  assert.ok([...h.lines.values()].every((line) => line.coordinates.every((point) => point[2] === 0)));
+  assert.ok(h.markers.every((marker) => marker.options.altitude === 0));
+  h.ui("path").checked = false; h.ui("path").handlers.change();
+  h.ui("path").checked = true; h.ui("path").handlers.change();
+  assert.ok([...h.lines.values()].every((line) => line.coordinates.every((point) => point[2] === 0)));
   assert.notDeepEqual(h.model.coordinates.slice(0, 2), h.queries[0].options.origin);
   assert.equal(h.model.rotations.at(-1).z, 180);
   assert.equal(h.model.playback, null);
@@ -199,6 +205,7 @@ test("道路吸附起點、第一段方向、還原與重播一致，失敗不�
     assert.deepEqual(h.model.coordinates, [...points[0], 0]);
     assert.equal(h.model.rotations.at(-1).z, 180);
     assert.equal(h.model.playback.trackHeading, true);
+    assert.ok(h.model.playback.path.every((point) => point[2] === 0));
     const rotations = h.model.rotations.length;
     // SDK 負責播放途中的方向；測試只模擬到達終點，不呼叫手動 setRotation。
     h.model.coordinates = [...points.at(-1), 0];
