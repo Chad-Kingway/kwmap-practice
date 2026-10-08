@@ -86,11 +86,13 @@ async function setup({ manualRequests = false, random = Math.random } = {}) {
   let requestMap;
   const requestQueries = [], requestMarkers = [], requestLines = new Map();
   let nextTimer = 0, time = 0;
+  let activeElement = null;
   const node = (id) => {
     if (!nodes.has(id)) nodes.set(id, {
       value: "", checked: true, disabled: false, hidden: true, textContent: "", handlers: {}, listeners: {}, attributes: {},
       classList: { add() {}, remove() {} },
-      contains(target) { return target === this; },
+      contains(target) { return target === this || (id === "proj01-coordinate-inputs" && [nodes.get("proj01-origin"), nodes.get("proj01-destination")].includes(target)); },
+      focus() { activeElement = this; },
       querySelector(selector) { return node(selector); },
       insertAdjacentHTML(_position, html) { this.innerHTML += html; },
       setAttribute(name, value) { this.attributes[name] = value; },
@@ -167,7 +169,7 @@ async function setup({ manualRequests = false, random = Math.random } = {}) {
     decodePolyline(encoded) { return JSON.parse(encoded); }
   }
   const context = vm.createContext({
-    document: { getElementById: node, createElement: () => ({ style: {}, classList: { toggle(name, selected) { this[name] = selected; } } }) }, window: Object.assign(node("window"), { location: { origin: "http://localhost" } }),
+    document: { getElementById: node, get activeElement() { return activeElement; }, createElement: () => ({ style: {}, classList: { toggle(name, selected) { this[name] = selected; } } }) }, window: Object.assign(node("window"), { location: { origin: "http://localhost" } }),
     fetch: async () => ({ ok: true, headers: { get: () => "model/gltf+json" }, json: async () => ({ asset: { version: "2.0" } }) }),
     AbortSignal, loadSdk: async () => SDK, accessKey: "測試", accessToken: "測試",
     mountRequestList: (container) => (requestList = mountRequestList(container)),
@@ -223,6 +225,7 @@ async function setup({ manualRequests = false, random = Math.random } = {}) {
     end_location: { lng: points.at(-1)[0], lat: points.at(-1)[1] },
   }] }] }];
   return { ui, nodes, timers, queries, markers, lines, renderedLines, model, result, camera, cameraView, cameraTargets, frames, requestList, requestMap, requestQueries, requestMarkers, requestLines, map: instance, layers, renderedLayers,
+    get activeElement() { return activeElement; },
     disposeDisplay: () => vm.runInContext("disposeMapDisplay()", context),
     click: (lng, lat, overrides = {}) => instance.click({ lngLat: { lng, lat }, originalEvent: { button: 0, target: node("map"), ...overrides } }),
     frame: (milliseconds = 16) => { time += milliseconds; const batch = [...frames.values()]; frames.clear(); for (const fn of batch) fn(time); },
@@ -435,6 +438,95 @@ test("選點解除跟隨，查詢或播放取消模式並禁止選點", async ()
   assert.equal(h.model.playing, true);
   endSegment(h); endSegment(h);
   assert.equal(h.ui("select-origin").disabled, false);
+});
+
+test("座標展開與收合保留原始無效草稿，編輯取消選點，收合妥善移回焦點", async () => {
+  const h = await setup();
+  const toggle = () => h.ui("toggle-coordinates").handlers.click();
+  assert.equal(h.ui("coordinate-inputs").hidden, true);
+  assert.equal(h.ui("coordinate-preview").hidden, false);
+  assert.equal(h.ui("origin-preview").textContent, "未設定");
+  toggle();
+  assert.equal(h.ui("coordinate-inputs").hidden, false);
+  assert.equal(h.ui("coordinate-preview").hidden, true);
+  const raw = '  <img src=x onerror="alert(1)">, 尚未輸完  ';
+  for (const endpoint of ["origin", "destination"]) {
+    h.ui(`select-${endpoint}`).handlers.click();
+    h.ui(endpoint).value = raw;
+    h.ui(endpoint).handlers.input();
+    assert.equal(h.ui(`select-${endpoint}`).attributes["aria-pressed"], "false");
+    assert.equal(h.ui(`${endpoint}-preview`).textContent, raw);
+    assert.equal(h.ui("error").hidden, true, "編輯中不驗證格式");
+  }
+  h.ui("origin").focus(); toggle();
+  assert.equal(h.activeElement, h.ui("toggle-coordinates"));
+  assert.equal(h.ui("toggle-coordinates").attributes["aria-expanded"], "false");
+  assert.equal(h.ui("coordinate-inputs").hidden, true);
+  assert.equal(h.ui("coordinate-preview").hidden, false);
+  assert.equal(h.ui("origin-preview").textContent, raw);
+  toggle();
+  assert.equal(h.ui("origin").value, raw);
+  assert.equal(h.ui("destination").value, raw);
+  assert.equal(h.requestQueries.length, 3);
+  assert.equal(h.requestList.requests.length, 3);
+  assert.equal(h.queries.length, 0);
+  h.add();
+  assert.match(h.ui("error").textContent, /座標格式錯誤/);
+  assert.equal(h.ui("origin").value, raw);
+  assert.equal(h.requestList.requests.length, 3);
+  h.disposeVehicle();
+});
+
+test("收合時地圖選點同步摘要且不展開，成功新增同步清空輸入與摘要", async () => {
+  const h = await setup();
+  const map = h.nodes.get("map");
+  for (const [endpoint, lng, lat] of [["origin", 121.55, 25.04], ["destination", 121.56, 25.05]]) {
+    h.ui(`select-${endpoint}`).handlers.click();
+    map.handlers.pointerdown({ pointerType: "mouse", pointerId: 1, button: 0, buttons: 1, clientX: 100, clientY: 100 });
+    map.handlers.pointerup({ pointerType: "mouse", pointerId: 1, button: 0, buttons: 0, clientX: 100, clientY: 100 });
+    h.click(lng, lat);
+    assert.equal(h.ui(endpoint).value, `${lng}, ${lat}`);
+    assert.equal(h.ui(`${endpoint}-preview`).textContent, `${lng}, ${lat}`);
+    assert.equal(h.ui("coordinate-inputs").hidden, true);
+  }
+  assert.equal(h.requestQueries.length, 3);
+  h.add(); await h.requestMap.loading;
+  assert.equal(h.requestList.requests.length, 4);
+  assert.deepEqual(h.requestList.requests[3].origin, [121.55, 25.04]);
+  for (const endpoint of ["origin", "destination"]) {
+    assert.equal(h.ui(endpoint).value, "");
+    assert.equal(h.ui(`${endpoint}-preview`).textContent, "未設定");
+  }
+  assert.equal(h.ui("coordinate-inputs").hidden, true);
+  h.disposeVehicle();
+});
+
+test("接送跟隨中切換與編輯草稿不改任務或鏡頭，隨機需求保留展開狀態", async () => {
+  const h = await setup({ random: fixedRandom() });
+  selectRequest(h, "request-01"); h.ui("follow").handlers.click(); h.ui("transport").handlers.click();
+  const before = { playback: h.model.playback, position: [...h.model.coordinates], camera: { ...h.camera }, queryCount: h.requestQueries.length };
+  for (const expanded of [true, false, true]) {
+    h.ui("toggle-coordinates").handlers.click();
+    h.ui("origin").value = "草稿原文"; h.ui("origin").handlers.input();
+    assert.equal(h.ui("select-origin").disabled, true);
+    assert.equal(h.ui("select-destination").disabled, true);
+    assert.equal(h.ui("coordinate-inputs").hidden, !expanded);
+    assert.equal(h.requestQueries.length, before.queryCount);
+    assert.deepEqual(h.model.coordinates, before.position);
+    assert.deepEqual(h.camera, before.camera);
+    assert.equal(h.model.playback, before.playback);
+  }
+  for (const expanded of [true, false]) {
+    if (!expanded) h.ui("toggle-coordinates").handlers.click();
+    h.ui("random-request").handlers.click(); await h.requestMap.loading;
+    assert.equal(h.ui("coordinate-inputs").hidden, !expanded);
+    assert.equal(h.ui("origin").value, "草稿原文");
+    assert.equal(h.ui("origin-preview").textContent, "草稿原文");
+    assert.equal(h.requestList.selectedRequestId, "request-01");
+    assert.deepEqual(h.camera, before.camera);
+    assert.equal(h.model.playback, before.playback);
+  }
+  h.disposeVehicle(); await flushTask();
 });
 
 test("合併座標輸入驗證後才新增需求，比例只在套用時更新", async () => {

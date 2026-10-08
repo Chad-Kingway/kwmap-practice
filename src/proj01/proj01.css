@@ -60,15 +60,17 @@
 .proj01-vehicle-section + .proj01-vehicle-section { margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e8f0; }
 .proj01-section-title { margin: 0 0 8px; font-size: 14px; }
 .proj01-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.proj01-coordinate-row, .proj01-input-row {
+.proj01-input-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: end;
   gap: 6px;
 }
-.proj01-coordinate-row > div { min-width: 0; }
-.proj01-request-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
-.proj01-panel .proj01-coordinate-row button, .proj01-panel .proj01-input-row button { width: auto; margin: 0; padding: 9px 6px; white-space: nowrap; font-size: 12px; }
+.proj01-manual-request { padding-bottom: 10px; border-bottom: 1px solid #e2e8f0; }
+.proj01-draft-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.proj01-panel .proj01-draft-actions button { flex: 1 1 auto; width: auto; margin: 0; padding: 9px 6px; white-space: nowrap; font-size: 12px; }
+.proj01-coordinate-preview p { margin: 8px 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.proj01-panel .proj01-input-row button { width: auto; margin: 0; padding: 9px 6px; white-space: nowrap; font-size: 12px; }
 @media (max-width: 700px) {
   .proj01-layout { height: auto; min-height: 100dvh; grid-template-columns: minmax(0, 1fr); align-content: start; }
   .proj01-panel { max-height: 45dvh; border-right: 0; border-bottom: 1px solid #ccd4df; padding: 12px; }

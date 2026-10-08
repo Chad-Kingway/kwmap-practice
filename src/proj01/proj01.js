@@ -104,20 +104,25 @@ export async function init() {
       </details>
       <fieldset class="proj01-requests">
         <legend>需求管理</legend>
-        <div class="proj01-coordinate-row">
-          <div><label for="proj01-origin">起點</label>
-            <input id="proj01-origin" type="text" placeholder="lng, lat"></div>
-          <button id="proj01-select-origin" type="button" aria-pressed="false" disabled>選取起點</button>
-        </div>
-        <div class="proj01-coordinate-row">
-          <div><label for="proj01-destination">終點</label>
-            <input id="proj01-destination" type="text" placeholder="lng, lat"></div>
-          <button id="proj01-select-destination" type="button" aria-pressed="false" disabled>選取終點</button>
-        </div>
-        <div class="proj01-request-actions">
+        <section class="proj01-manual-request" aria-label="手動新增需求">
+          <div class="proj01-draft-actions">
+            <button id="proj01-select-origin" type="button" aria-pressed="false" disabled>選取起點</button>
+            <button id="proj01-select-destination" type="button" aria-pressed="false" disabled>選取終點</button>
+            <button id="proj01-toggle-coordinates" type="button" aria-expanded="false" aria-controls="proj01-coordinate-inputs">輸入座標</button>
+          </div>
+          <div id="proj01-coordinate-preview" class="proj01-coordinate-preview">
+            <p>起點：<span id="proj01-origin-preview">未設定</span></p>
+            <p>終點：<span id="proj01-destination-preview">未設定</span></p>
+          </div>
+          <div id="proj01-coordinate-inputs" hidden>
+            <label for="proj01-origin">起點</label>
+            <input id="proj01-origin" type="text" placeholder="lng, lat">
+            <label for="proj01-destination">終點</label>
+            <input id="proj01-destination" type="text" placeholder="lng, lat">
+          </div>
           <button id="proj01-add-request" type="button">新增需求</button>
-          <button id="proj01-random-request" type="button">隨機需求</button>
-        </div>
+        </section>
+        <button id="proj01-random-request" type="button">隨機需求</button>
         <div id="proj01-request-list"></div>
       </fieldset>
       <details class="proj01-vehicle" open>
@@ -154,8 +159,24 @@ export async function init() {
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });
   disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
-  const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "auto-transport", "vehicle-controls", "scale", "apply-scale", "speed", "speed-value", "follow", "locate", "origin", "destination", "add-request", "select-origin", "select-destination"]
+  const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "auto-transport", "vehicle-controls", "scale", "apply-scale", "speed", "speed-value", "follow", "locate", "origin", "destination", "add-request", "select-origin", "select-destination", "toggle-coordinates", "coordinate-inputs", "coordinate-preview", "origin-preview", "destination-preview"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
+  const syncDraft = () => {
+    for (const endpoint of ["origin", "destination"]) ui[`${endpoint}-preview`].textContent = ui[endpoint].value || "未設定";
+  };
+  let coordinatesExpanded = false;
+  const setCoordinatesExpanded = (expanded) => {
+    // 隱藏輸入區前將內部焦點移回切換鈕，原始草稿不作解析或修正。
+    if (!expanded && ui["coordinate-inputs"].contains(document.activeElement)) ui["toggle-coordinates"].focus();
+    coordinatesExpanded = expanded;
+    ui["coordinate-inputs"].hidden = !expanded;
+    ui["coordinate-preview"].hidden = expanded;
+    ui["toggle-coordinates"].setAttribute("aria-expanded", String(expanded));
+    ui["toggle-coordinates"].textContent = expanded ? "收合座標" : "輸入座標";
+    syncDraft();
+  };
+  setCoordinatesExpanded(false);
+  ui["toggle-coordinates"].addEventListener("click", () => setCoordinatesExpanded(!coordinatesExpanded));
   let map;
   const modelSettings = createModelSettings({ initialScale: MODEL_INITIAL_SCALE, redraw: () => map.redraw() });
   const simulationSettings = { speedMultiplier: 60 };
@@ -294,6 +315,7 @@ export async function init() {
     }
     const endpoint = pickMode;
     ui[endpoint].value = `${lng}, ${lat}`;
+    syncDraft();
     clearError();
     cancelPick(`已填入${endpoint === "origin" ? "起點" : "終點"}經緯度；請按「新增需求」。`);
   };
@@ -314,6 +336,11 @@ export async function init() {
     pickMap?.off("click", handlePickClick);
   };
   for (const endpoint of ["origin", "destination"]) {
+    ui[endpoint].addEventListener("input", () => {
+      clearError();
+      cancelPick();
+      syncDraft();
+    });
     ui[`select-${endpoint}`].addEventListener("click", action(() => {
       if (!ready || moving || transport?.busy) return;
       if (pickMode === endpoint) { cancelPick(); return; }
@@ -333,6 +360,7 @@ export async function init() {
       validateEndpoints(origin, destination);
       const request = requestList.addRequest(origin, destination);
       ui.origin.value = ui.destination.value = "";
+      syncDraft();
       cancelPick();
       // 接送中只附加需求，保留原本執行狀態、車位與鏡頭。
       if (!transport?.busy) status(`已新增需求 ${request.id.slice("request-".length)}。`);
