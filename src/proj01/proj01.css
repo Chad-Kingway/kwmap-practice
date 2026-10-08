@@ -47,11 +47,12 @@
 .proj01-model, .proj01-note { color: #526075; font-size: 12px; overflow-wrap: anywhere; }
 #proj01-status { padding: 10px; background: #edf4ff; border-radius: 6px; }
 #proj01-error { padding: 10px; color: #9f1239; background: #fff1f2; border-radius: 6px; overflow-wrap: anywhere; }
-.proj01-vehicle, .proj01-global-settings { margin: 12px 0; border: 1px solid #ccd4df; border-radius: 6px; }
-.proj01-vehicle-summary, .proj01-global-summary { padding: 12px; background: #edf4ff; border-radius: 6px; font-weight: bold; cursor: pointer; }
-.proj01-vehicle-summary::marker, .proj01-global-summary::marker { color: #175cd3; }
+.proj01-vehicle, .proj01-global-settings, .proj01-completed-requests { margin: 12px 0; border: 1px solid #ccd4df; border-radius: 6px; }
+.proj01-vehicle-summary, .proj01-global-summary, .proj01-completed-requests > summary { padding: 12px; background: #edf4ff; border-radius: 6px; font-weight: bold; cursor: pointer; }
+.proj01-vehicle-summary::marker, .proj01-global-summary::marker, .proj01-completed-requests > summary::marker { color: #175cd3; }
 .proj01-panel .proj01-vehicle-summary button { float: right; width: auto; margin: -3px 0; padding: 4px 8px; font-size: 12px; }
-.proj01-vehicle[open] > .proj01-vehicle-summary, .proj01-global-settings[open] > .proj01-global-summary { border-radius: 6px 6px 0 0; border-bottom: 1px solid #ccd4df; }
+.proj01-vehicle[open] > .proj01-vehicle-summary, .proj01-global-settings[open] > .proj01-global-summary, .proj01-completed-requests[open] > summary { border-radius: 6px 6px 0 0; border-bottom: 1px solid #ccd4df; }
+.proj01-completed-list { padding: 0 6px; }
 .proj01-global-controls { display: grid; gap: 8px; padding: 10px; }
 .proj01-global-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 6px; }
 .proj01-panel .proj01-global-row label { margin: 0; white-space: nowrap; }

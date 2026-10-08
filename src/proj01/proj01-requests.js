@@ -5,6 +5,7 @@ const COLORS = ["#175cd3", "#15803d", "#c2410c", "#7e22ce", "#be123c", "#0e7490"
 const coordinateText = (point) => point.map((value) => Number(value.toFixed(6))).join(", ");
 
 export function mountRequestList(container) {
+  const document = container.ownerDocument;
   // 預製座標不預先保證道路可用性，路線載入狀態與接送狀態分開管理。
   const requests = [
     { id: "request-01", origin: [121.561, 25.0334], destination: [121.567, 25.034], color: "#175cd3", status: "pending" },
@@ -21,7 +22,7 @@ export function mountRequestList(container) {
   const routeLabels = { loading: "路線查詢中…", ready: "", unavailable: "路線不可用", error: "路線查詢失敗" };
   const itemHtml = (request) => {
     const number = request.id.slice("request-".length);
-    return `<div class="proj01-request">
+    return `<div class="proj01-request" data-request-id="${request.id}">
       <input id="proj01-select-${request.id}" type="radio" name="proj01-request" value="${request.id}" ${selectedRequestId === request.id ? "checked" : ""}>
       <div class="proj01-request-heading">
         <label for="proj01-select-${request.id}" class="proj01-request-name"><span class="proj01-request-color" style="background-color: ${request.color}" aria-hidden="true"></span><strong>需求 ${number}</strong></label>
@@ -34,7 +35,42 @@ export function mountRequestList(container) {
       <span data-request-route="${request.id}" class="proj01-request-route-status" role="status">${routeLabels[routeStates.get(request.id)?.status] ?? ""}</span>
     </div>`;
   };
-  const render = () => { container.innerHTML = requests.map(itemHtml).join(""); };
+  container.innerHTML = `<div data-request-active></div>
+    <details class="proj01-completed-requests" data-request-completed hidden>
+      <summary data-request-completed-summary>已完成（0）</summary>
+      <div class="proj01-completed-list" data-request-completed-list></div>
+    </details>`;
+  const activeList = container.querySelector("[data-request-active]");
+  const completedSection = container.querySelector("[data-request-completed]");
+  const completedSummary = container.querySelector("[data-request-completed-summary]");
+  const completedList = container.querySelector("[data-request-completed-list]");
+  const cardFor = (id) => container.querySelector(`[data-request-id="${id}"]`);
+  const syncCompleted = () => {
+    const count = requests.filter(request => request.status === "completed").length;
+    completedSection.hidden = count === 0;
+    completedSummary.textContent = `已完成（${count}）`;
+  };
+  const placeCard = (request) => {
+    const completed = request.status === "completed";
+    const target = completed ? completedList : activeList;
+    let card = cardFor(request.id);
+    if (!card) {
+      target.insertAdjacentHTML("beforeend", itemHtml(request));
+      card = cardFor(request.id);
+    }
+    const next = requests.slice(requests.indexOf(request) + 1)
+      .filter(item => (item.status === "completed") === completed)
+      .map(item => cardFor(item.id)).find(item => item?.parentNode === target) ?? null;
+    if (card.parentNode === target && card.nextElementSibling === next) return;
+    const focused = card.contains(document.activeElement) ? document.activeElement : null;
+    // 移動原卡片，保留 radio 與監聽；收合區內的焦點移到 summary，不自動展開。
+    target.insertBefore(card, next);
+    if (focused) (completed && !completedSection.open ? completedSummary : focused).focus({ preventScroll: true });
+  };
+  const render = () => {
+    for (const request of requests) placeCard(request);
+    syncCompleted();
+  };
   const selectById = (id) => {
     if (!requests.some((request) => request.id === id)) return;
     if (selectedRequestId === id) return;
@@ -65,7 +101,7 @@ export function mountRequestList(container) {
         color: COLORS[(number - 1) % COLORS.length], status: "pending" };
       requests.push(request);
       // 僅附加新項目，保留既有 radio 與鍵盤焦點。
-      container.insertAdjacentHTML("beforeend", itemHtml(request));
+      placeCard(request);
       for (const listener of changeListeners) listener({ type: "added", id: request.id });
       return request;
     },
@@ -77,6 +113,8 @@ export function mountRequestList(container) {
       request.status = status;
       const element = container.querySelector(`[data-request-status="${id}"]`);
       if (element) element.textContent = statusLabels[status];
+      syncCompleted();
+      placeCard(request);
       for (const listener of changeListeners) listener({ type: "status", id });
     },
     setRouteState(id, state) {

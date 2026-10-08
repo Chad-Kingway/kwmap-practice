@@ -15,23 +15,25 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
     const id = lineId(request.id);
     if (lineIds.has(id)) map.three.remove3dObjectById(id);
     lineIds.delete(id);
-    if (route?.status !== "ready") return;
+    if (request.status === "completed" || route?.status !== "ready") return;
     lineIds.add(id);
     map.three.add3dLine({
       id, coordinates: route.coordinates.map(([lng, lat]) => [lng, lat, 0]),
       color: request.color, width: request.id === requestList.selectedRequestId ? 7 : 3,
     });
   };
+  const updateRequest = (request) => {
+    if (!request || disposed) return;
+    const selected = request.id === requestList.selectedRequestId;
+    for (const { icon } of markers.get(request.id) ?? []) {
+      icon.classList.toggle("proj01-request-selected", selected);
+      icon.classList.toggle("proj01-request-completed", request.status === "completed");
+    }
+    drawRoute(request);
+  };
   const updateSelection = () => {
     if (disposed) return;
-    for (const request of requestList.requests) {
-      const selected = request.id === requestList.selectedRequestId;
-      for (const { icon } of markers.get(request.id) ?? []) {
-        icon.classList.toggle("proj01-request-selected", selected);
-        icon.classList.toggle("proj01-request-completed", request.status === "completed");
-      }
-      drawRoute(request);
-    }
+    for (const request of requestList.requests) updateRequest(request);
     map.redraw();
   };
   // 需求端點與任務路線分開管理；新增只附加自己的物件。
@@ -58,8 +60,12 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
   const unsubscribeStatus = requestList.subscribeChange(({ type, id }) => {
     if (disposed) return;
     if (type === "added") enqueue(requestList.requests.find((request) => request.id === id));
-    else if (type === "status") updateSelection();
+    else if (type === "status" || type === "route") {
+      updateRequest(requestList.requests.find(request => request.id === id));
+      map.redraw();
+    }
   });
+  map.on("style.load", updateSelection);
   const query = (request) => new Promise((resolve, reject) => {
     let finished = false;
     const finish = (error, response) => {
@@ -101,14 +107,9 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
           const route = normalizeDirections(candidates, (encoded) => map.decodePolyline(encoded));
           requestList.setRouteState(request.id, { status: "ready", ...route,
             ...(route.durationSeconds === null ? { error: "缺少有效路線時間，無法接送。" } : {}) });
-          drawRoute(request);
-          map.redraw();
         } catch (error) {
           if (disposed) return;
-          map.three.remove3dObjectById(lineId(request.id));
-          lineIds.delete(lineId(request.id));
           requestList.setRouteState(request.id, { status: "error", error: error.message || String(error) });
-          map.redraw();
         }
       }
     } finally { draining = false; }
@@ -129,6 +130,7 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
       disposed = true;
       unsubscribe();
       unsubscribeStatus();
+      map.off("style.load", updateSelection);
       cancelPending?.();
       queue.length = 0;
       queued.clear();
