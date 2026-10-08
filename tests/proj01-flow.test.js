@@ -10,6 +10,62 @@ import { normalizeDirections, validateEndpoints, parseCoordinate, validCoordinat
 import { geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix } from "../src/proj01/proj01-heading.js";
 
 // 隔離外部服務與渲染，只檢查查詢競態、控制狀態及有效路線的替換流程。
+test("缺少送人時間仍保留道路預覽，禁止接送且需求維持 pending", async () => {
+  const h = await setup({ manualRequests: true });
+  const request = h.requestList.requests[0];
+  const response = h.result([request.origin, request.destination]);
+  delete response[0].legs[0].duration;
+  h.requestQueries[0].callback(response, "OK"); await flushTask();
+  selectRequest(h, request.id);
+  const cached = h.requestList.getRouteState(request.id);
+  assert.equal(cached.status, "ready");
+  assert.equal(cached.durationSeconds, null);
+  assert.match(cached.error, /缺少有效路線時間/);
+  assert.equal(h.requestLines.size, 1);
+  h.ui("transport").handlers.click(); h.ui("auto-transport").handlers.click();
+  assert.equal(h.model.playbacks.length, 0);
+  assert.equal(request.status, "pending");
+  assert.equal(h.ui("transport").disabled, true);
+  assert.equal(h.ui("auto-transport").disabled, true);
+  assert.equal(h.requestList.getRouteState(request.id), cached);
+  h.disposeVehicle(); await flushTask();
+});
+
+test("無效接人時間不播放、不改位置，遲到回應不能啟動動畫", async () => {
+  for (const invalid of [undefined, null, "300", 0, -1, NaN, Infinity]) {
+    const h = await setup();
+    h.model.coordinates = [121.53, 25.035, 0];
+    const position = [...h.model.coordinates];
+    selectRequest(h, "request-02"); h.ui("transport").handlers.click();
+    const query = h.queries[0];
+    const response = h.result([position.slice(0, 2), h.requestList.requests[1].origin]);
+    response[0].legs[0].duration.value = invalid;
+    query.callback(response, "OK"); await flushTask();
+    assert.equal(h.model.playbacks.length, 0);
+    assert.deepEqual(h.model.coordinates, position);
+    assert.equal(h.requestList.requests[1].status, "pending");
+    assert.match(h.ui("error").textContent, /缺少有效時間/);
+    assert.equal(h.ui("speed").disabled, false);
+    query.callback(h.result([position.slice(0, 2), h.requestList.requests[1].origin]), "OK");
+    await flushTask(); assert.equal(h.model.playbacks.length, 0);
+    h.disposeVehicle();
+  }
+});
+
+test("速度倍率邊界與小數依秒轉毫秒，略過接人不增加時間", async () => {
+  for (const multiplier of [1, 60, 300, 1.5]) {
+    const h = await setup();
+    selectRequest(h, "request-01"); h.ui("speed").value = String(multiplier);
+    h.ui("transport").handlers.click();
+    assert.equal(h.model.playback.duration, 600 * 1000 / multiplier);
+    assert.equal(h.queries.length, 0);
+    endSegment(h, h.model.playback);
+    assert.equal(h.ui("speed").disabled, false);
+    assert.equal(h.requestList.requests[0].status, "completed");
+    h.disposeVehicle();
+  }
+});
+
 async function setup({ manualRequests = false } = {}) {
   const nodes = new Map(), timers = new Map(), queries = [], markers = [], lines = new Map(), frames = new Map();
   const camera = { locks: 0, releases: 0, moves: 0 };
@@ -129,14 +185,14 @@ async function setup({ manualRequests = false } = {}) {
   context.mountRequestMap = (options) => {
     const directions = { route(query, callback) {
       requestQueries.push({ options: query, callback });
-      if (!manualRequests) callback([{ legs: [{ steps: [{ polyline: { points: JSON.stringify([query.origin, query.destination]) },
+      if (!manualRequests) callback([{ legs: [{ duration: { value: 600, text: "10 分鐘" }, steps: [{ polyline: { points: JSON.stringify([query.origin, query.destination]) },
         start_location: { lng: query.origin[0], lat: query.origin[1] }, end_location: { lng: query.destination[0], lat: query.destination[1] } }] }] }], "OK");
     } };
     return requestMap = mountMap({ ...options, directions });
   };
   await vm.runInContext(`${source}\ninit()`, context);
   if (!manualRequests) await requestMap.loading;
-  const result = (points, summary = "測試路線") => [{ summary, legs: [{ steps: [{
+  const result = (points, summary = "測試路線", seconds = 300) => [{ summary, legs: [{ duration: { value: seconds, text: "顯示文字不供解析" }, steps: [{
     polyline: { points: JSON.stringify(points) },
     start_location: { lng: points[0][0], lat: points[0][1] },
     end_location: { lng: points.at(-1)[0], lat: points.at(-1)[1] },
@@ -389,14 +445,15 @@ test("合併座標輸入驗證後才新增需求，比例只在套用時更新",
   assert.deepEqual(h.requestList.requests[3].destination, [121.562, 25.034]);
   assert.deepEqual(h.model.coordinates, position);
   selectRequest(h, "request-01");
-  for (const value of ["", "0", "301", "NaN"]) {
-    h.ui("duration").value = value;
+  for (const value of ["", "0", "301", "NaN", "Infinity", "-1"]) {
+    h.ui("speed").value = value;
     h.ui("transport").handlers.click();
     assert.equal(h.model.playback, null);
+    assert.equal(h.requestList.requests[0].status, "pending");
   }
-  h.ui("duration").value = "12";
+  h.ui("speed").value = "12";
   h.ui("transport").handlers.click();
-  assert.equal(h.model.playback.duration, 12000);
+  assert.equal(h.model.playback.duration, 50000);
 });
 
 test("共用比例與輸入草稿分開，相同值不累乘，新登記模型繼承最後成功值", () => {
@@ -580,7 +637,7 @@ test("自動接送每次只執行一筆，完成後從新位置重新排序且�
   const h = await setup();
   const [first, second, third] = h.requestList.requests;
   // 第一筆送人道路終點接近第三筆，不能沿用初始車位挑第二筆。
-  h.requestList.setRouteState(first.id, { status: "ready", coordinates: [first.origin, third.origin] });
+  h.requestList.setRouteState(first.id, { status: "ready", durationSeconds: 600, coordinates: [first.origin, third.origin] });
   h.ui("auto-transport").handlers.click();
   assert.equal(h.requestList.selectedRequestId, first.id);
   assert.equal(h.queries.length, 0);
@@ -598,7 +655,7 @@ test("自動接送每次只執行一筆，完成後從新位置重新排序且�
   assert.equal(h.ui("auto-transport").disabled, true);
   h.ui("auto-transport").handlers.click();
   assert.equal(h.model.playbacks.length, 2);
-  h.requestList.setRouteState(second.id, { status: "ready", coordinates: [second.origin, second.destination] });
+  h.requestList.setRouteState(second.id, { status: "ready", durationSeconds: 600, coordinates: [second.origin, second.destination] });
   assert.equal(h.ui("auto-transport").disabled, false, "目前選取已完成仍可自動接其他需求");
   for (const status of ["assigned", "pickingUp", "onboard", "completed"]) {
     h.requestList.setStatus(second.id, status);
@@ -610,7 +667,7 @@ test("同距離按清單順序選擇，不按終點或送人路線長度排序",
   const h = await setup();
   const [first, second, third] = h.requestList.requests;
   first.origin = [...second.origin];
-  h.requestList.setRouteState(first.id, { status: "ready", coordinates: [first.origin, third.destination] });
+  h.requestList.setRouteState(first.id, { status: "ready", durationSeconds: 600, coordinates: [first.origin, third.destination] });
   h.requestList.setRouteState(third.id, { status: "loading" });
   h.model.coordinates = [121.542, 25.041, 0];
   h.ui("auto-transport").handlers.click();
@@ -742,13 +799,13 @@ test("已在起點時略過接人，只服務保留需求，完成後清除任�
   assert.equal(h.ui("transport").disabled, true);
   selectRequest(h, "request-01");
   assert.equal(h.ui("transport").disabled, false);
-  h.ui("duration").value = "12";
+  h.ui("speed").value = "12";
   const html = h.ui("request-list").innerHTML;
   h.ui("transport").handlers.click();
   const playback = h.model.playback;
   await flushTask(); // followPath 的 Promise 已完成，仍不能假裝到站。
   assert.equal(h.queries.length, 0);
-  assert.equal(playback.duration, 12000);
+  assert.equal(playback.duration, 50000, "略過接人只播放送人 600 秒 ÷ 12 倍");
   assert.equal(h.requestList.requests[0].status, "onboard");
   assert.equal(h.ui("vehicle-status").textContent, "送人中");
   h.ui("transport").handlers.click();
@@ -758,7 +815,7 @@ test("已在起點時略過接人，只服務保留需求，完成後清除任�
   assert.equal(h.queries.length, 0);
   assert.equal(h.ui("transport").disabled, true);
   assert.equal(h.ui("select-origin").attributes["aria-pressed"], "false");
-  for (const control of ["scale", "apply-scale", "duration"]) assert.equal(h.ui(control).disabled, true);
+  for (const control of ["scale", "apply-scale", "speed"]) assert.equal(h.ui(control).disabled, true);
   endSegment(h, playback);
   playback.onEnd(); playback.onStart(); h.frame();
   assert.equal(h.requestList.requests[0].status, "completed");
@@ -775,12 +832,12 @@ test("已在起點時略過接人，只服務保留需求，完成後清除任�
   assert.equal(h.requestLines.size, 3);
 });
 
-test("接人與送人依 onEnd 順序播放，分配總時間且保留需求路線", async () => {
+test("接人與送人各用官方時間及開始時倍率，依 onEnd 播放且保留需求路線", async () => {
   const h = await setup();
   const current = [121.53, 25.035, 0];
   h.model.coordinates = [...current];
   selectRequest(h, "request-02");
-  h.ui("duration").value = "10";
+  h.ui("speed").value = "60";
   h.ui("follow").handlers.click(); h.frame();
   const cached = h.requestList.getRouteState("request-02");
   h.ui("transport").handlers.click();
@@ -790,10 +847,11 @@ test("接人與送人依 onEnd 順序播放，分配總時間且保留需求路�
   assert.equal(h.requestList.requests[1].status, "assigned");
   assert.equal(h.ui("vehicle-status").textContent, "準備接送");
   assert.equal(h.model.playbacks.length, 0);
-  for (const name of ["select-origin", "select-destination", "scale", "duration"]) {
+  for (const name of ["select-origin", "select-destination", "scale", "speed"]) {
     assert.equal(h.ui(name).disabled, true, "準備查詢期間也須停用會干擾任務的控制項");
   }
   selectRequest(h, "request-03"); h.ui("transport").handlers.click();
+  h.ui("speed").value = "300"; // 即使外部修改輸入，任務仍用開始時的 60 倍。
   const pickupPoints = [current.slice(0, 2), [121.538, 25.04], h.requestList.requests[1].origin];
   // 模擬 SDK 調整查詢陣列順序；本次任務的 C、A 驗證基準仍須保持。
   request.options.origin.reverse(); request.options.destination.reverse();
@@ -802,7 +860,7 @@ test("接人與送人依 onEnd 順序播放，分配總時間且保留需求路�
   assert.equal(h.requestList.requests[1].status, "pickingUp");
   assert.equal(h.ui("vehicle-status").textContent, "前往接人");
   assert.deepEqual(JSON.parse(JSON.stringify(pickup.path)), pickupPoints.map(point => [...point, 0]));
-  assert.ok(pickup.duration > 5000 && pickup.duration < 10000);
+  assert.equal(pickup.duration, 5000);
   assert.equal(h.model.playbacks.length, 1);
   assert.equal(h.ui("follow").disabled, true);
   h.frame();
@@ -817,10 +875,7 @@ test("接人與送人依 onEnd 順序播放，分配總時間且保留需求路�
   assert.notEqual(dropoff, pickup);
   assert.equal(h.model.playbacks.length, 2);
   assert.equal(h.requestList.requests[1].status, "onboard");
-  assert.ok(Math.abs(pickup.duration + dropoff.duration - 10000) < 1e-6);
-  const pickupLength = pickupPoints.slice(1).reduce((sum, point, index) => sum + distanceMeters(pickupPoints[index], point), 0);
-  const dropoffLength = distanceMeters(cached.coordinates[0], cached.coordinates[1]);
-  assert.ok(Math.abs(pickup.duration / dropoff.duration - pickupLength / dropoffLength) < 1e-6);
+  assert.equal(dropoff.duration, 10000);
   assert.deepEqual(JSON.parse(JSON.stringify(dropoff.path)), cached.coordinates.map(point => [...point, 0]));
   pickup.onEnd(); pickup.onStart(); h.frame();
   assert.equal(h.model.playbacks.length, 2);

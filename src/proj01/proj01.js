@@ -13,7 +13,6 @@ const MODEL_URL = "/models/car/scene.gltf";
 // 請不要改INITIAL_ROTATION
 const INITIAL_ROTATION = { x: 90, y: 180, z: 0 };
 const MODEL_INITIAL_SCALE = 10;
-const INITIAL = { duration: 10 };
 const FOLLOW_CAMERA = { pitch: 65, zoom: 18 };
 const DEFAULT_ORIGIN = [121.561, 25.0334];
 // 已查驗 SDK 使用 CatmullRomCurve3；catmullrom 的零張力使每段幾何沿原線段，不切角。
@@ -88,6 +87,14 @@ export async function init() {
           <button id="proj01-apply-scale" type="button" disabled>套用</button>
         </div>
       </fieldset>
+      <fieldset class="proj01-simulation-settings">
+        <legend>模擬速度</legend>
+        <label for="proj01-speed" class="proj01-visually-hidden">速度倍率</label>
+        <div class="proj01-input-row">
+          <input id="proj01-speed" type="number" min="1" max="300" step="any" value="60" disabled>
+          <span class="proj01-unit">×</span>
+        </div>
+      </fieldset>
       <fieldset class="proj01-requests">
         <legend>需求管理</legend>
         <div class="proj01-coordinate-row">
@@ -111,11 +118,6 @@ export async function init() {
           <button id="proj01-transport" type="button">接送此需求</button>
           <button id="proj01-auto-transport" type="button" title="依車輛與需求起點的直線距離選擇">自動接送一筆</button>
           <section class="proj01-vehicle-section">
-              <label for="proj01-duration" class="proj01-section-title">接送展示時間</label>
-              <div class="proj01-input-row">
-                <input id="proj01-duration" title="整筆接送任務的總展示時間（秒）" type="number" min="1" max="300" step="1" value="${INITIAL.duration}">
-                <span class="proj01-unit">（秒）</span>
-              </div>
               <button id="proj01-follow" type="button">鏡頭跟隨模型</button>
           </section>
         </fieldset>
@@ -142,10 +144,11 @@ export async function init() {
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });
   disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
-  const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "auto-transport", "vehicle-controls", "scale", "apply-scale", "duration", "follow", "locate", "origin", "destination", "add-request", "select-origin", "select-destination"]
+  const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "auto-transport", "vehicle-controls", "scale", "apply-scale", "speed", "follow", "locate", "origin", "destination", "add-request", "select-origin", "select-destination"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   const modelSettings = createModelSettings({ initialScale: MODEL_INITIAL_SCALE, redraw: () => map.redraw() });
+  const simulationSettings = { speedMultiplier: 60 };
   let model;
   let sdk;
   let directions;
@@ -173,7 +176,7 @@ export async function init() {
     // 需求草稿獨立於車輛停用範圍，接送期間仍可新增。
     ui["vehicle-controls"].disabled = !ready;
     ui.scale.disabled = ui["apply-scale"].disabled = !modelSettings.canApply();
-    ui.duration.disabled = !ready || moving || transport?.busy;
+    ui.speed.disabled = !modelSettings.canApply();
     ui.transport.disabled = !transport?.canStart();
     ui["auto-transport"].disabled = !transport?.canStartNearest();
     ui.follow.disabled = !ready || wantsFollow || cameraLocked;
@@ -391,6 +394,13 @@ export async function init() {
     if (!modelSettings.canApply()) return;
     modelSettings.apply(number(ui.scale));
   }));
+  const readSpeedMultiplier = () => {
+    simulationSettings.speedMultiplier = number(ui.speed);
+    return simulationSettings.speedMultiplier;
+  };
+  ui.speed.addEventListener("change", action(() => {
+    if (modelSettings.canApply()) readSpeedMultiplier();
+  }));
   ui.follow.addEventListener("click", action(() => {
     if (wantsFollow || cameraLocked) return;
     cancelPick();
@@ -500,7 +510,7 @@ export async function init() {
     requestList,
     isAvailable: () => ready && !moving && Boolean(directions),
     getPosition: currentPosition,
-    getDuration: () => number(ui.duration) * 1000,
+    getSpeedMultiplier: readSpeedMultiplier,
     getDirections: () => directions,
     decodePolyline: (encoded) => map.decodePolyline(encoded),
     playSegment,

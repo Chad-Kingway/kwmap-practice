@@ -62,8 +62,15 @@ export function normalizeDirections(routes, decodePolyline) {
     }
   }
   if (coordinates.length < 2) throw new Error("路線至少需要兩個不同位置。");
+  // 實測 1.4.3 回傳 Directions 格式的 leg.duration.value（number，秒）。
+  // 僅加總 leg；缺值仍保留幾何，不使用 step、文字或距離補算。
+  const times = route.legs.map(leg => leg.duration?.value);
+  const total = times.every(value => Number.isFinite(value) && value > 0)
+    ? times.reduce((sum, value) => sum + value, 0) : null;
+  const durationSeconds = Number.isFinite(total) && total > 0 ? total : null;
   return {
     coordinates,
+    durationSeconds,
     candidates: routes.length,
     summary: typeof route.summary === "string" ? route.summary : "汽車路線"
   };

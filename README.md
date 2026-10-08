@@ -47,13 +47,15 @@ npm run dev
 
 獨立「模型設定」保存已套用的全域比例，輸入框是草稿；套用更新全部已登記模型後呼叫 `map.redraw()`。SDK `setScale()` 相對建立比例，因此傳入「目標比例 ÷ 模型初始比例」，重複套用不累乘；後續模型登記時繼承最後成功值。任一模型未就緒或接送中禁止套用，部分失敗顯示原因而不更新全域成功值。目前只實際使用一台車，多模型行為僅以模擬測試驗證。[比例文件](https://kw3dmap.localking.com.tw/3dmap/api/mapThree/model#setscale)、[重繪文件](https://kw3dmap.localking.com.tw/3dmap/api/map/methods#redraw)。
 
-車輛 01 保留接送總展示秒數與鏡頭跟隨。標題列「定位」只將中心移到模型目前位置，保留 zoom、pitch、bearing，不啟動跟隨；收合與接送中可用，跟隨或等待鎖定時停用。指定接送使用選取的需求；自動接送從模型當下位置，以原始乘客起點的直線距離選 pending 且路線 ready 的最近一筆，同距離沿用清單順序，不代表道路距離或接人時間最佳。兩者共用任務入口，每次只接一筆；切換清單不更換任務，完成或準備失敗後等待下一次操作。
+車輛 01 提供接送與鏡頭跟隨。標題列「定位」只將中心移到模型目前位置，保留 zoom、pitch、bearing，不啟動跟隨；收合與接送中可用，跟隨或等待鎖定時停用。指定接送使用選取的需求；自動接送從模型當下位置，以原始乘客起點的直線距離選 pending、路線 ready 且有有效預估時間的最近一筆，同距離沿用清單順序，不代表道路距離或接人時間最佳。兩者共用任務入口，每次只接一筆；切換清單不更換任務，完成或準備失敗後等待下一次操作。
 
-接送從模型目前位置查詢接人道路，再沿快取送人路線移動，以有效 `onEnd` 接續兩段，按路長分配總展示時間。距起點 5 公尺內可略過接人；實際道路起點與銜接點最多容許 50 公尺吸附差異，不補直線。接送期間停用比例、時間與選點，但草稿手動輸入、新增及每筆預覽開關仍可使用。完成清除任務線，車輛停在實際道路終點。
+接送從模型目前位置查詢接人道路，再沿快取送人路線移動，以有效 `onEnd` 接續兩段。獨立「模擬速度」是全車共用倍率，預設 60，允許 1～300；任務開始保存倍率，每段動畫毫秒為「該段官方預估秒數 × 1000 ÷ 倍率」。例如接人 300 秒、送人 600 秒，在 60× 下分別播放 5 秒、10 秒。距起點 5 公尺內可略過接人，只使用送人時間；實際道路起點與銜接點最多容許 50 公尺吸附差異，不補直線。準備及接送期間停用比例、倍率與選點，但草稿手動輸入、新增及每筆預覽開關仍可使用。完成清除任務線，車輛停在實際道路終點。
+
+實測 mapThree 1.4.3 回傳各 `leg.duration.value` 為數值（例 254、369、459），使用 Directions 格式的秒數欄位，只加總 leg，不再加 route／step 或解析 `text`。[秒數格式說明](https://developers.google.com/maps/documentation/javascript/legacy/directions)。`normalizeDirections` 保存 `durationSeconds`；任一 leg 缺少有限正秒數時保留道路預覽及快取，但禁止接送並提示原因。接人時間無效時不出發、需求回到 pending；倍率不影響 20 秒 API 逾時。
 
 沿用 mapThree 1.4.3 的 `DirectionsService(map)`、DRIVING、第一條候選路線與 `legs[].steps[].polyline.points`；官方 `map.decodePolyline()` 解成 [經度, 緯度]，驗證連接順序且只移除相鄰重複點。20 秒查詢逾時及過期回應不修改已失效工作；失敗不以直線替代道路。參考：[路線服務](https://kw3dmap.localking.com.tw/3dmap/api/other-service/directions-service/methods)、[模型 API](https://kw3dmap.localking.com.tw/3dmap/api/mapThree/model)。
 
-素材初始校正保留 `INITIAL_ROTATION = { x: 90, y: 180, z: 0 }`，只在建立時套用。路段開始使用共同 Z 軸方向轉換，播放固定 `trackHeading: true`，不另手動旋轉；`proj01-heading.js` 保留目前模型 quaternion 的 1.4.3 相容處理。模型、路線與標記均使用 z=0，不代表道路或橋梁真實高度；零張力 catmullrom 曲線沿道路線段，秒數僅為展示動畫時間。
+素材初始校正保留 `INITIAL_ROTATION = { x: 90, y: 180, z: 0 }`，只在建立時套用。路段開始使用共同 Z 軸方向轉換，播放固定 `trackHeading: true`，不另手動旋轉；`proj01-heading.js` 保留目前模型 quaternion 的 1.4.3 相容處理。模型、路線與標記均使用 z=0，不代表道路或橋梁真實高度；零張力 catmullrom 曲線沿道路線段，以每段官方預估時間作平均配速，不拆 step 播放。
 
 鏡頭設定集中在 `FOLLOW_CAMERA`，路段開始解除鎖定、準備起始視角，在 `onStart` 後下一繪製幀依當下模型位置重新鎖定。跟隨使用 `rotateWithDirection: true`；地圖左鍵位移 5px 解除跟隨但不中止車輛，首次拖曳可能只解除，需再次拖曳才平移。面板以 passive 局部 wheel 阻止事件冒泡，保留原生捲動；窄螢幕為上方面板、下方地圖。
 

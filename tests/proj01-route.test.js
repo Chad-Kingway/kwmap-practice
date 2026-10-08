@@ -14,6 +14,26 @@ function fixture(segments) {
   return { routes: [{ summary: "測試道路", legs: [{ steps }] }], decode: (encoded) => segments[Number(encoded)] };
 }
 
+test("只加總 leg 的數值秒數，缺失時間仍保留道路且不採用 route、step 或文字", () => {
+  const { routes, decode } = fixture([[a, b], [b, c]]);
+  const steps = routes[0].legs[0].steps;
+  routes[0].duration = { value: 900 };
+  steps.forEach(step => { step.duration = { value: 500 }; });
+  routes[0].legs = [{ duration: { value: 300, text: "5 分鐘" }, steps: [steps[0]] },
+    { duration: { value: 600, text: "10 分鐘" }, steps: [steps[1]] }];
+  assert.equal(normalizeDirections(routes, decode).durationSeconds, 900);
+  for (const invalid of [undefined, null, "600", 0, -1, NaN, Infinity]) {
+    routes[0].legs[1].duration.value = invalid;
+    const result = normalizeDirections(routes, decode);
+    assert.equal(result.durationSeconds, null);
+    assert.deepEqual(result.coordinates, [a, b, c]);
+  }
+  delete routes[0].legs[1].duration;
+  assert.equal(normalizeDirections(routes, decode).durationSeconds, null);
+  routes[0].legs.forEach(leg => { leg.duration = { value: Number.MAX_VALUE }; });
+  assert.equal(normalizeDirections(routes, decode).durationSeconds, null);
+});
+
 test("檢查有限數值、範圍與相同起終點", () => {
   validateEndpoints(a, b);
   for (const invalid of [[NaN, 25], [Infinity, 25], [181, 25], [121, 91], [121]]) {

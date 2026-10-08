@@ -99,7 +99,8 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
             continue;
           }
           const route = normalizeDirections(candidates, (encoded) => map.decodePolyline(encoded));
-          requestList.setRouteState(request.id, { status: "ready", ...route });
+          requestList.setRouteState(request.id, { status: "ready", ...route,
+            ...(route.durationSeconds === null ? { error: "缺少有效路線時間，無法接送。" } : {}) });
           drawRoute(request);
           map.redraw();
         } catch (error) {

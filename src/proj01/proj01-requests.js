@@ -99,7 +99,7 @@ export function mountRequestList(container) {
       // 只更新路線提示，不重建 radio，保留鍵盤操作中的焦點。
       const element = container.querySelector(`[data-request-route="${id}"]`);
       if (element) {
-        element.textContent = (routeLabels[state.status] ?? "") + (state.error ? `：${state.error}` : "");
+        element.textContent = [routeLabels[state.status], state.error].filter(Boolean).join("：");
         element.title = state.error ?? "";
       }
       for (const listener of changeListeners) listener({ type: "route", id });

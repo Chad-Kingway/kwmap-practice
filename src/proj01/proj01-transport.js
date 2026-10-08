@@ -24,13 +24,15 @@ function checkSnap(a, b, label) {
   if (distance > ROAD_SNAP_METERS) throw new Error(`${label}相距 ${distance.toFixed(1)} 公尺，超過道路貼齊容許值 ${ROAD_SNAP_METERS} 公尺，無法使用此接送路線。`);
 }
 
-export function createTransport({ requestList, isAvailable, getPosition, getDuration, getDirections, decodePolyline, playSegment, showSegment, clearSegment, changed, reportError }) {
+export function createTransport({ requestList, isAvailable, getPosition, getSpeedMultiplier, getDirections, decodePolyline, playSegment, showSegment, clearSegment, changed, reportError }) {
   let task = null;
   let version = 0;
   let disposed = false;
   let cancelQuery;
   const available = () => !disposed && !task && isAvailable();
-  const eligible = (request) => request?.status === "pending" && requestList.getRouteState(request.id)?.status === "ready";
+  const validTime = (value) => Number.isFinite(value) && value > 0;
+  const eligible = (request) => request?.status === "pending" && requestList.getRouteState(request.id)?.status === "ready"
+    && validTime(requestList.getRouteState(request.id).durationSeconds);
   const canStart = (id = requestList.selectedRequestId) => available()
     && eligible(requestList.requests.find((request) => request.id === id));
   const canStartNearest = () => available() && requestList.requests.some(eligible);
@@ -67,7 +69,11 @@ export function createTransport({ requestList, isAvailable, getPosition, getDura
       const pending = getDirections().route({ origin: [...origin], destination: [...destination], travelMode: "DRIVING" }, (candidates, status) => {
         if (!current(job)) { finish(new Error("接送任務已失效。")); return; }
         if (status !== "OK") { finish(new Error(`接人路線查詢失敗：${String(status)}。`)); return; }
-        try { finish(null, normalizeDirections(candidates, decodePolyline).coordinates); }
+        try {
+          const route = normalizeDirections(candidates, decodePolyline);
+          if (!validTime(route.durationSeconds)) throw new Error("接人路線缺少有效時間，無法接送。");
+          finish(null, route);
+        }
         catch (error) { finish(error); }
       });
       Promise.resolve(pending).catch((error) => finish(error));
@@ -124,12 +130,14 @@ export function createTransport({ requestList, isAvailable, getPosition, getDura
         }
       }
       if (!eligible(request) || !available()) return;
-      const duration = getDuration();
+      const speedMultiplier = getSpeedMultiplier();
+      if (!Number.isFinite(speedMultiplier) || speedMultiplier < 1 || speedMultiplier > 300) throw new Error("請輸入有效速度倍率（1～300）。");
       const dropoff = requestList.getRouteState(request.id).coordinates.map((point) => [...point]);
-      const dropoffLength = pathLength(dropoff);
+      const dropoffSeconds = requestList.getRouteState(request.id).durationSeconds;
+      pathLength(dropoff);
       job = { id: ++version, requestId: request.id, origin: [...request.origin], destination: [...request.destination],
-        color: request.color, dropoff, phase: "assigned", sequence: 0, attempted: false, failed: false };
-      // 同步保留需求與總時間，await 期間切換選取不能更換任務。
+        color: request.color, dropoff, speedMultiplier, phase: "assigned", sequence: 0, attempted: false, failed: false };
+      // 同步保留需求與共用倍率，await 期間切換選取或修改輸入不能更換任務。
       task = job;
       requestList.setStatus(job.requestId, "assigned");
       if (nearest) requestList.selectById(job.requestId);
@@ -138,15 +146,19 @@ export function createTransport({ requestList, isAvailable, getPosition, getDura
       if (distanceMeters(origin, job.origin) > PICKUP_NEAR_METERS && distanceMeters(origin, dropoff[0]) > PICKUP_NEAR_METERS) {
         pickup = await queryPickup(job, origin, [...job.origin]);
         if (!current(job)) return;
-        checkSnap(origin, pickup[0], "車輛與接人路線起點");
+        checkSnap(origin, pickup.coordinates[0], "車輛與接人路線起點");
         // 輸入座標可被服務吸附到道路；銜接比較兩段實際道路端點，而非原始乘客座標。
-        checkSnap(pickup.at(-1), dropoff[0], "接人與送人路線接點");
+        checkSnap(pickup.coordinates.at(-1), dropoff[0], "接人與送人路線接點");
       } else checkSnap(origin, dropoff[0], "車輛與送人路線起點");
-      const pickupLength = pickup ? pathLength(pickup) : 0;
-      const pickupDuration = duration * pickupLength / (pickupLength + dropoffLength);
+      if (pickup) pathLength(pickup.coordinates);
+      const milliseconds = (seconds) => {
+        const duration = seconds * 1000 / job.speedMultiplier;
+        if (!validTime(duration)) throw new Error("路線動畫時間無效，無法接送。");
+        return duration;
+      };
       job.segments = [
-        ...(pickup ? [{ phase: "pickingUp", path: pickup, duration: pickupDuration }] : []),
-        { phase: "onboard", path: dropoff, duration: duration - pickupDuration },
+        ...(pickup ? [{ phase: "pickingUp", path: pickup.coordinates, durationSeconds: pickup.durationSeconds, duration: milliseconds(pickup.durationSeconds) }] : []),
+        { phase: "onboard", path: dropoff, durationSeconds: dropoffSeconds, duration: milliseconds(dropoffSeconds) },
       ];
       runSegment(job, 0);
     } catch (error) {
