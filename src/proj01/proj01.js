@@ -82,22 +82,21 @@ export async function init() {
       <h1>proj01：3D 模型與路徑實驗室</h1>
       <p id="proj01-status" role="status" aria-live="polite">正在檢查模型素材…</p>
       <p id="proj01-error" role="alert" hidden></p>
-      <fieldset class="proj01-model-settings">
-        <legend>模型設定</legend>
-        <label for="proj01-scale">模型比例</label>
-        <div class="proj01-input-row">
-          <input id="proj01-scale" type="number" min="0.1" max="1000" step="0.1" value="${MODEL_INITIAL_SCALE}" disabled>
-          <button id="proj01-apply-scale" type="button" disabled>套用</button>
+      <details class="proj01-global-settings" open>
+        <summary class="proj01-global-summary">全域設定</summary>
+        <div class="proj01-global-controls">
+          <div class="proj01-global-row">
+            <label for="proj01-scale">模型比例</label>
+            <input id="proj01-scale" type="number" min="0.1" max="1000" step="0.1" value="${MODEL_INITIAL_SCALE}" disabled>
+            <button id="proj01-apply-scale" type="button" disabled>套用</button>
+          </div>
+          <div class="proj01-global-row">
+            <label for="proj01-speed">模擬速度</label>
+            <input id="proj01-speed" type="range" min="1" max="300" step="1" value="60" disabled>
+            <output id="proj01-speed-value" for="proj01-speed" class="proj01-unit">60×</output>
+          </div>
         </div>
-      </fieldset>
-      <fieldset class="proj01-simulation-settings">
-        <legend>模擬速度</legend>
-        <label for="proj01-speed" class="proj01-visually-hidden">速度倍率</label>
-        <div class="proj01-input-row">
-          <input id="proj01-speed" type="range" min="1" max="300" step="1" value="60" disabled>
-          <output id="proj01-speed-value" for="proj01-speed" class="proj01-unit">60×</output>
-        </div>
-      </fieldset>
+      </details>
       <fieldset class="proj01-requests">
         <legend>需求管理</legend>
         <div class="proj01-coordinate-row">
