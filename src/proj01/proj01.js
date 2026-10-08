@@ -1,12 +1,15 @@
 import { accessKey, accessToken } from "../config.js";
 import { loadSdk } from "../sdk.js";
 import { validateEndpoints, parseCoordinate, validCoordinate } from "./proj01-route.js";
-import { geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix } from "./proj01-heading.js";
+import { modelRotationFromBearing } from "./proj01-heading.js";
 import { mountRequestList } from "./proj01-requests.js";
 import { mountRequestMap } from "./proj01-request-map.js";
-import { createTransport, distanceMeters, ROAD_SNAP_METERS } from "./proj01-transport.js";
+import { createTransport } from "./proj01-transport.js";
 import { createModelSettings } from "./proj01-model-settings.js";
 import { mountPoiToggle } from "./proj01-map-display.js";
+import { createSimulationClock } from "./proj01-clock.js";
+import { createPlayback } from "./proj01-playback.js";
+import { createFollowCamera } from "./proj01-camera.js";
 import "./proj01.css";
 
 const MODEL_URL = "/models/car/scene.gltf";
@@ -15,8 +18,6 @@ const INITIAL_ROTATION = { x: 90, y: 180, z: 0 };
 const MODEL_INITIAL_SCALE = 10;
 const FOLLOW_CAMERA = { pitch: 65, zoom: 18 };
 const DEFAULT_ORIGIN = [121.561, 25.0334];
-// 已查驗 SDK 使用 CatmullRomCurve3；catmullrom 的零張力使每段幾何沿原線段，不切角。
-const ROUTE_CURVE = { closed: false, curveType: "catmullrom", tension: 0 };
 const FOLLOW_DRAG_THRESHOLD = 5;
 let disposePanelWheel;
 let disposeMapDrag;
@@ -27,6 +28,7 @@ let disposePlayback;
 let disposeRequestMap;
 let disposeMapDisplay;
 let requestMapVersion = 0;
+let disposePage;
 
 async function checkModelAssets() {
   const response = await fetch(MODEL_URL, { signal: AbortSignal.timeout(15000) });
@@ -61,6 +63,7 @@ function withTimeout(promise, milliseconds, message) {
 
 export async function init() {
   // 每次初始化先清除上一個面板與地圖的監聽；完整頁面切換則由瀏覽器釋放。
+  disposePage?.();
   disposeTransport?.();
   disposePlayback?.();
   disposePanelWheel?.();
@@ -140,7 +143,7 @@ export async function init() {
   const panel = document.getElementById("proj01-panel");
   const requestList = mountRequestList(document.getElementById("proj01-request-list"));
   disposeRequests = requestList.dispose;
-  // 已查驗 SDK 跟隨以 window 的冒泡 wheel 調整縮放；只隔離面板，保留原生捲動。
+  // 面板保留原生捲動，不讓滾輪影響地圖。
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });
   disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
@@ -162,16 +165,11 @@ export async function init() {
   let transport;
   let taskLineId = null;
   let wantsFollow = false;
-  let cameraLocked = false;
-  let lockFrame = null;
-  let followVersion = 0;
-  let runVersion = 0;
-  let movementStarted = false;
-  let movementFrame = null;
+  let playback;
+  let followCamera;
   let travelBearing = 0;
   let ready = false;
   let pickMode = null;
-  let position = [...DEFAULT_ORIGIN, 0];
   const status = (message) => { ui.status.textContent = message; };
   const showError = (error) => {
     ui.error.textContent = error.message || String(error);
@@ -182,11 +180,11 @@ export async function init() {
     // 需求草稿獨立於車輛停用範圍，接送期間仍可新增。
     ui["vehicle-controls"].disabled = !ready;
     ui.scale.disabled = ui["apply-scale"].disabled = !modelSettings.canApply();
-    ui.speed.disabled = !modelSettings.canApply();
+    ui.speed.disabled = !ready;
     ui.transport.disabled = !transport?.canStart();
     ui["auto-transport"].disabled = !transport?.canStartNearest();
-    ui.follow.disabled = !ready || wantsFollow || cameraLocked;
-    ui.locate.disabled = !ready || wantsFollow || cameraLocked;
+    ui.follow.disabled = !ready || wantsFollow;
+    ui.locate.disabled = !ready || wantsFollow;
     for (const endpoint of ["origin", "destination"]) {
       ui[`select-${endpoint}`].disabled = !ready || moving || transport?.busy;
       ui[`select-${endpoint}`].setAttribute("aria-pressed", String(pickMode === endpoint));
@@ -199,16 +197,8 @@ export async function init() {
     return input.valueAsNumber;
   };
   const setBearing = (bearing) => {
-    // 設定目標 Z 角度；不累加、不重複套用素材校正，播放中只由 SDK 控制旋轉。
+    // 設定目標 Z 角度，不累加或重複套用素材校正。
     model.setRotation({ x: 0, y: 0, z: modelRotationFromBearing(bearing) });
-  };
-  const placeAtRouteStart = (path) => {
-    const bearing = initialPathBearing(path);
-    const start = [path[0][0], path[0][1], 0];
-    model.setCoordinates(start);
-    setBearing(bearing);
-    position = [...start];
-    travelBearing = bearing;
   };
   const currentPosition = () => {
     // 已查驗 1.4.3 實作：SDK 使用模型 coordinates 作為跟隨位置，移動時會更新它。
@@ -218,61 +208,7 @@ export async function init() {
     }
     return [...coordinates];
   };
-  const samplePosition = () => {
-    const current = currentPosition();
-    if (moving) travelBearing = geographicBearing(position, current) ?? travelBearing;
-    position = current;
-    return current;
-  };
-  const cancelPendingLock = () => {
-    followVersion++;
-    if (lockFrame !== null) cancelAnimationFrame(lockFrame);
-    lockFrame = null;
-  };
-  const releaseLock = () => {
-    cancelPendingLock();
-    if (cameraLocked) {
-      map.three.releaseCamera();
-      cameraLocked = false;
-    }
-  };
-  const prepareCamera = () => {
-    const current = samplePosition();
-    map.jumpTo({ ...FOLLOW_CAMERA, center: current.slice(0, 2), bearing: travelBearing });
-  };
-  const scheduleLock = () => {
-    cancelPendingLock();
-    const request = followVersion;
-    const run = runVersion;
-    // 實作中的 onStart 先於 tb.update()；下一個繪製幀才讀取更新後的位置並鎖定。
-    lockFrame = requestAnimationFrame(() => {
-      if (request !== followVersion || run !== runVersion || !ready || !wantsFollow || cameraLocked) return;
-      lockFrame = null;
-      try {
-        prepareCamera();
-        // 先標記可能已鎖定，讓 SDK 部分完成後拋錯時仍會嘗試清理。
-        cameraLocked = true;
-        map.three.fixedCameraToModel({ model, rotateWithDirection: true, releaseCameraOnClick: false });
-      } catch (error) {
-        wantsFollow = false;
-        try { releaseLock(); } catch (releaseError) { showError(releaseError); }
-        showError(error);
-      }
-      syncControls();
-    });
-  };
-  const cancelMovementFrame = () => {
-    if (movementFrame !== null) cancelAnimationFrame(movementFrame);
-    movementFrame = null;
-  };
-  const trackPosition = (run, onError) => {
-    movementFrame = requestAnimationFrame(() => {
-      if (run !== runVersion || !moving) return;
-      movementFrame = null;
-      try { samplePosition(); } catch (error) { onError(error); return; }
-      trackPosition(run, onError);
-    });
-  };
+  const releaseLock = () => { followCamera?.stop(); };
   const action = (fn) => () => {
     if (!ready) return;
     clearError();
@@ -291,13 +227,13 @@ export async function init() {
   };
   const beginDrag = (event) => {
     resetDrag();
-    if (!ready || (!wantsFollow && !cameraLocked) || event.pointerType !== "mouse" || event.button !== 0 || event.buttons !== 1) return;
+    if (!ready || !wantsFollow || event.pointerType !== "mouse" || event.button !== 0 || event.buttons !== 1) return;
     dragStart = { id: event.pointerId, x: event.clientX, y: event.clientY };
     window.addEventListener("blur", resetDrag, { once: true });
   };
   const moveDrag = (event) => {
     if (!dragStart || event.pointerId !== dragStart.id) return;
-    if (event.buttons !== 1 || (!wantsFollow && !cameraLocked)) { resetDrag(); return; }
+    if (event.buttons !== 1 || !wantsFollow) { resetDrag(); return; }
     const distance = Math.hypot(event.clientX - dragStart.x, event.clientY - dragStart.y);
     if (distance >= FOLLOW_DRAG_THRESHOLD) action(releaseFollow)();
   };
@@ -412,108 +348,57 @@ export async function init() {
     return simulationSettings.speedMultiplier;
   };
   ui.speed.addEventListener("input", action(() => {
-    if (!modelSettings.canApply()) return;
     simulationSettings.speedMultiplier = readSpeedInput();
     syncSpeed();
   }));
   ui.follow.addEventListener("click", action(() => {
-    if (wantsFollow || cameraLocked) return;
+    if (wantsFollow) return;
     cancelPick();
     wantsFollow = true;
-    // 播放尚未 onStart 時先保留意願，其餘情況在下一幀使用模型當下座標。
-    if (!moving || movementStarted) scheduleLock();
+    try { followCamera.start(currentPosition(), travelBearing); }
+    catch (error) { wantsFollow = false; releaseLock(); throw error; }
     syncControls();
   }));
   ui.locate.addEventListener("click", (event) => {
     // 僅取消此按鈕點擊的 summary 預設切換，保留原生按鈕鍵盤啟動。
     event.preventDefault();
-    if (!ready || wantsFollow || cameraLocked) return;
+    if (!ready || wantsFollow) return;
     action(() => map.jumpTo({ center: currentPosition().slice(0, 2) }))();
   });
-  let cancelPlayback = () => {};
-  // 接送路段共用 SDK 播放、位置追蹤及鏡頭流程；只有有效 onEnd 才解除播放鎖。
-  const playSegment = ({ path: source, duration, onStart, onEnd, onError }) => {
-    const path = source.map(([lng, lat]) => [lng, lat, 0]);
-    const run = ++runVersion;
-    let finished = false, failed = false, attempted = false, completionFrame = null;
+  const cancelPlayback = () => {
+    playback?.cancel();
+    moving = false;
+    wantsFollow = false;
+    releaseLock();
+    syncControls();
+  };
+  const playSegment = ({ onStart, onEnd, onError, ...segment }) => {
     moving = true;
-    movementStarted = false;
     syncControls();
     status(ui["vehicle-status"].textContent + "…");
-    const fail = (error) => {
-      if (run !== runVersion || finished || failed) return;
-      failed = true;
-      try { samplePosition(); } catch { /* 座標失效時保留最後有效位置。 */ }
-      cancelMovementFrame();
-      wantsFollow = false;
-      try { releaseLock(); } catch (releaseError) { showError(releaseError); }
-      moving = attempted;
-      if (!attempted) { finished = true; movementStarted = false; }
-      syncControls();
-      onError(error, { stopped: !attempted, attempted });
-    };
-    cancelPlayback = () => {
-      finished = true;
-      runVersion++;
-      if (completionFrame !== null) cancelAnimationFrame(completionFrame);
-      cancelMovementFrame();
-      releaseLock();
-    };
-    try {
-      releaseLock();
-      cancelMovementFrame();
-      placeAtRouteStart(path);
-      if (wantsFollow) prepareCamera();
-      attempted = true;
-      const playback = model.followPath({
-        path, duration, trackHeading: true, curveOptions: { ...ROUTE_CURVE },
-        onStart: () => {
-          if (run !== runVersion || finished || failed || movementStarted) return;
-          movementStarted = true;
-          try {
-            onStart?.();
-            trackPosition(run, fail);
-            if (wantsFollow) scheduleLock();
-          } catch (error) { fail(error); }
-        },
-        onEnd: () => {
-          if (run !== runVersion || finished) return;
-          finished = true;
-          cancelMovementFrame();
-          cancelPendingLock();
-          const complete = () => {
-            if (run !== runVersion) return;
-            completionFrame = null;
-            moving = movementStarted = false;
-            try {
-              samplePosition();
-              if (!failed) {
-                // onEnd 後下一個繪製幀再確認最終座標，避免與 SDK 當幀更新及下一段競爭。
-                if (distanceMeters(currentPosition(), path.at(-1)) > ROAD_SNAP_METERS) throw new Error("路段結束座標未到達預期終點，接送已中斷。");
-                model.setCoordinates([...path.at(-1)]);
-              }
-              position = failed ? currentPosition() : [...path.at(-1)];
-            } catch (error) {
-              failed = true;
-              wantsFollow = false;
-              try { releaseLock(); } catch (releaseError) { showError(releaseError); }
-              onError(error, { stopped: true, attempted: true });
-            }
-            if (wantsFollow && !cameraLocked) scheduleLock();
-            syncControls();
-            onEnd();
-          };
-          completionFrame = requestAnimationFrame(complete);
-        },
-      });
-      // Promise 只處理啟動拒絕；完成與兩段接續以 onEnd 為準。
-      Promise.resolve(playback).catch(fail);
-    } catch (error) { fail(error); }
+    playback.play({ ...segment,
+      onStart,
+      onEnd: (details) => {
+        moving = false;
+        onEnd(details);
+        syncControls();
+      },
+      onError: (error, details) => {
+        moving = false;
+        wantsFollow = false;
+        releaseLock();
+        onError(error, details);
+        syncControls();
+      },
+    });
   };
   disposePlayback = () => {
     cancelPlayback();
+    playback?.dispose();
     modelSettings.clear();
-    if (model) map.three.remove3dObject(model);
+    if (model) { map.three.remove3dObject(model); model = null; }
+    ready = false;
+    syncControls();
   };
   const clearTaskLine = () => {
     if (!taskLineId) return;
@@ -525,7 +410,7 @@ export async function init() {
     requestList,
     isAvailable: () => ready && !moving && Boolean(directions),
     getPosition: currentPosition,
-    getSpeedMultiplier: readSpeedMultiplier,
+    cancelPlayback,
     getDirections: () => directions,
     decodePolyline: (encoded) => map.decodePolyline(encoded),
     playSegment,
@@ -541,7 +426,7 @@ export async function init() {
       status(label === "閒置" ? "接送完成，車輛閒置。" : label === "閒置（接送中斷）" ? "接送中斷，車輛閒置。" : label + "…");
       syncControls();
     },
-    reportError: (error, waiting) => showError(new Error(error.message + (waiting ? " 未確認可用的公開停止介面，請等待動畫結束；若未收到結束回呼，請重新整理。" : ""))),
+    reportError: showError,
   });
   const unsubscribeTaskSelection = requestList.subscribeSelection(syncControls);
   const unsubscribeTaskData = requestList.subscribeChange(syncControls);
@@ -552,19 +437,31 @@ export async function init() {
   ui.transport.addEventListener("click", action(() => {
     if (!transport.canStart()) return;
     cancelPick();
+    readSpeedMultiplier();
     void transport.start();
   }));
   ui["auto-transport"].addEventListener("click", action(() => {
     if (!transport.canStartNearest()) return;
     cancelPick();
+    readSpeedMultiplier();
     void transport.startNearest();
   }));
 
 
+  const pageCleanup = () => {
+    if (requestMapRun === requestMapVersion) requestMapVersion++;
+    disposeTransport?.(); disposePlayback?.(); disposeMapDrag?.(); disposeMapPick?.();
+    disposeMapDisplay?.(); disposePanelWheel?.(); disposeRequestMap?.(); disposeRequests?.();
+  };
+  window.addEventListener("pagehide", pageCleanup);
+  disposePage = () => { window.removeEventListener("pagehide", pageCleanup); };
+
   try {
     await checkModelAssets();
+    if (requestMapRun !== requestMapVersion) return;
     status("正在載入官方 mapThree 1.4.3 SDK…");
     const MapThree = await loadSdk("mapThree");
+    if (requestMapRun !== requestMapVersion) return;
     sdk = MapThree;
     status("正在初始化 mapThree 1.4.3 地圖…");
     map = await withTimeout(new MapThree(document.getElementById("map"), {
@@ -576,6 +473,7 @@ export async function init() {
       // 官方公開選項：視窗及響應式分區尺寸改變時，由 SDK 更新地圖大小。
       trackResize: true,
     }), 45000, "地圖初始化逾時，請檢查網路、憑證與官方服務後重新整理。");
+    if (requestMapRun !== requestMapVersion) return;
     disposeMapDisplay = mountPoiToggle({ map, button: document.getElementById("proj01-poi-toggle"), reportError: showError });
     await withTimeout(new Promise((resolve) => {
       let started = false;
@@ -589,6 +487,7 @@ export async function init() {
       map.on("style.load", loaded);
       if (map.isStyleLoaded()) loaded();
     }), 45000, "地圖樣式載入逾時，請檢查 Network、憑證與官方服務後重新整理。");
+    if (requestMapRun !== requestMapVersion) return;
     status(`正在載入模型 ${MODEL_URL}…`);
     // 已查驗 mapThree 1.4.3 會提供此服務，直接使用目前地圖，不另外載入 mapPlus。
     if (typeof sdk.DirectionsService === "function") {
@@ -610,7 +509,7 @@ export async function init() {
       rotation: { ...INITIAL_ROTATION }, scale: MODEL_INITIAL_SCALE, anchor: "bottom",
     }).then((loaded) => {
       // 逾時後才到達的模型不啟用控制，避免畫面與載入狀態不一致。
-      if (expired) map.three.remove3dObject(loaded);
+      if (expired || requestMapRun !== requestMapVersion) map.three.remove3dObject(loaded);
       return loaded;
     });
     try {
@@ -619,7 +518,16 @@ export async function init() {
       expired = true;
       throw error;
     }
-    installSdkHeadingQuaternionFix(model);
+    if (requestMapRun !== requestMapVersion) { model = null; return; }
+    followCamera = createFollowCamera({ map, view: FOLLOW_CAMERA });
+    const clock = createSimulationClock({ getSpeedMultiplier: readSpeedMultiplier });
+    playback = createPlayback({ clock, model,
+      updateCamera: (current, bearing) => {
+        travelBearing = bearing;
+        followCamera.update(current, bearing);
+      },
+      redraw: () => map.redraw(),
+    });
     setBearing(0);
     modelSettings.register({ id: "車輛 01", model, initialScale: MODEL_INITIAL_SCALE,
       isBusy: () => !ready || moving || Boolean(transport?.busy) });
@@ -630,6 +538,7 @@ export async function init() {
     syncControls();
     status("模型載入完成。");
   } catch (error) {
+    if (requestMapRun !== requestMapVersion) return;
     ready = false;
     syncControls();
     status("模型實驗室載入失敗，控制已停用。修正問題後請重新整理。");
