@@ -587,10 +587,6 @@ test("需求路線依序查詢，逾時與失敗獨立，選取及釋放不接�
   assert.equal(h.requestLines.get(id).width, 3);
   assert.equal(h.requestQueries.length, 3);
   assert.equal(h.timers.size, 0);
-  h.requestList.setRouteVisible(second.id, false);
-  assert.equal(h.requestLines.size, 0);
-  h.requestList.setRouteVisible(second.id, true);
-  assert.equal(h.requestLines.size, 1);
   h.requestMap.dispose(); h.requestMap.dispose();
   assert.equal(h.requestLines.size, 0);
   assert.equal(h.requestMarkers.filter(marker => !marker.removed).length, 0);
@@ -707,9 +703,8 @@ const endSegment = (h, playback = h.model.playback) => {
 
 test("新增驗證、座標副本與連點只建立一筆，保留選取、狀態與車位", async () => {
   const h = await setup();
-  const [first, second] = h.requestList.requests;
+  const [, second] = h.requestList.requests;
   h.requestList.selectById(second.id);
-  h.requestList.setRouteVisible(first.id, false);
   h.requestList.setStatus(second.id, "completed");
   const before = { position: [...h.model.coordinates], rotations: [...h.model.rotations], camera: { ...h.camera } };
   h.ui("origin").value = h.ui("destination").value = "121.561, 25.0334";
@@ -721,13 +716,12 @@ test("新增驗證、座標副本與連點只建立一筆，保留選取、狀�
   assert.equal(h.requestList.requests.length, 4);
   const added = h.requestList.requests[3];
   assert.equal(added.id, "request-04");
-  assert.equal(added.routeVisible, true);
   assert.equal(added.status, "pending");
   assert.equal(h.ui("origin").value, "");
   assert.equal(h.ui("destination").value, "");
   assert.equal(h.requestList.selectedRequestId, second.id);
   assert.equal(second.status, "completed");
-  assert.equal(first.routeVisible, false);
+  assert.equal(h.requestLines.size, 4, "新增後既有路線與新路線持續顯示");
   const origin = [121.543, 25.041], destination = [121.553, 25.045];
   const copy = h.requestList.addRequest(origin, destination);
   origin[0] = 0; destination[1] = 0;
@@ -741,10 +735,9 @@ test("新增驗證、座標副本與連點只建立一筆，保留選取、狀�
   assert.equal(h.model.playback, null);
 });
 
-test("初始化查詢中新增仍依序查一次，隱藏狀態及失敗保留，釋放後不再新增圖層", async () => {
+test("初始化查詢中新增仍依序查一次，路線持續顯示且失敗保留，釋放後不再新增圖層", async () => {
   const h = await setup({ manualRequests: true });
   const fourth = h.requestList.addRequest([121.562, 25.034], [121.563, 25.035]);
-  h.requestList.setRouteVisible(fourth.id, false);
   assert.equal(h.requestMarkers.length, 8);
   assert.equal(h.requestQueries.length, 1);
   for (let index = 0; index < 4; index++) {
@@ -756,12 +749,11 @@ test("初始化查詢中新增仍依序查一次，隱藏狀態及失敗保留�
   await h.requestMap.loading;
   const id = `proj01-request-route-${fourth.id}`;
   assert.equal(h.requestList.getRouteState(fourth.id).status, "ready");
-  assert.equal(h.requestLines.has(id), false, "查詢完成仍依目前 checkbox 隱藏");
+  assert.equal(h.requestLines.has(id), true, "查詢完成即顯示路線");
   h.requestList.selectById(fourth.id);
   h.requestList.setStatus(fourth.id, "assigned");
-  assert.equal(h.requestLines.has(id), false, "選取及狀態不重開隱藏線");
+  assert.equal(h.requestLines.size, 4, "選取及狀態更新保留全部路線");
   const cached = h.requestList.getRouteState(fourth.id);
-  h.requestList.setRouteVisible(fourth.id, true);
   assert.equal(h.requestLines.get(id).width, 7);
   assert.equal(h.requestQueries.length, 4);
   assert.equal(h.requestList.getRouteState(fourth.id), cached);
@@ -778,7 +770,7 @@ test("初始化查詢中新增仍依序查一次，隱藏狀態及失敗保留�
   assert.equal(h.requestLines.size, 0);
 });
 
-test("接送中新增不換任務，每筆路線 checkbox 不改選取、快取或任務線", async () => {
+test("接送中新增不換任務，需求路線持續顯示且保留選取、快取與任務線", async () => {
   const h = await setup();
   selectRequest(h, "request-01");
   h.ui("transport").handlers.click();
@@ -789,10 +781,9 @@ test("接送中新增不換任務，每筆路線 checkbox 不改選取、快取�
   assert.equal(h.ui("select-origin").disabled, true);
   const id = "proj01-request-route-request-01";
   const cached = h.requestList.getRouteState("request-01");
-  h.ui("request-list").handlers.change({ target: { type: "checkbox", name: "proj01-request-line", value: "request-01", checked: false } });
   assert.equal(h.requestList.selectedRequestId, "request-01");
-  assert.equal(h.requestLines.has(id), false);
-  assert.equal(h.requestLines.size, 2);
+  assert.equal(h.requestLines.has(id), true);
+  assert.equal(h.requestLines.size, 3);
   h.ui("origin").value = "121.561, 25.0334";
   h.ui("destination").value = "121.565, 25.035";
   h.add(); await flushTask();
@@ -800,15 +791,15 @@ test("接送中新增不換任務，每筆路線 checkbox 不改選取、快取�
   assert.equal(h.model.playback, playback);
   assert.deepEqual(h.model.coordinates, current);
   assert.deepEqual(h.camera, camera);
-  assert.equal(h.requestList.requests[0].routeVisible, false);
+  assert.equal(h.requestLines.size, 4);
   assert.equal(h.requestList.requests[0].status, "onboard");
   assert.equal(h.requestList.selectedRequestId, "request-01");
   assert.equal([...h.lines.values()][0], line);
-  h.requestList.setRouteVisible("request-01", true);
   assert.equal(h.requestLines.has(id), true);
   assert.equal(h.requestList.getRouteState("request-01"), cached);
-  assert.equal(h.requestQueries.length, 4, "checkbox 與狀態更新不重查");
+  assert.equal(h.requestQueries.length, 4, "新增只查新需求，狀態更新不重查");
   endSegment(h, playback);
+  assert.equal(h.requestLines.size, 4, "接送完成仍保留全部需求路線");
   assert.equal(h.requestList.requests[0].status, "completed");
   assert.equal(h.requestList.requests[3].status, "pending");
   // 新需求 ready 後可沿用同一接送入口；從目前車位查接人，而非新增時瞬移。

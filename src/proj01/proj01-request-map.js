@@ -15,7 +15,7 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
     const id = lineId(request.id);
     if (lineIds.has(id)) map.three.remove3dObjectById(id);
     lineIds.delete(id);
-    if (!request.routeVisible || route?.status !== "ready") return;
+    if (route?.status !== "ready") return;
     lineIds.add(id);
     map.three.add3dLine({
       id, coordinates: route.coordinates.map(([lng, lat]) => [lng, lat, 0]),
@@ -58,7 +58,7 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
   const unsubscribeStatus = requestList.subscribeChange(({ type, id }) => {
     if (disposed) return;
     if (type === "added") enqueue(requestList.requests.find((request) => request.id === id));
-    else if (type === "status" || type === "visibility") updateSelection();
+    else if (type === "status") updateSelection();
   });
   const query = (request) => new Promise((resolve, reject) => {
     let finished = false;

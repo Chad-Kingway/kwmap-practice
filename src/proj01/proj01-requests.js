@@ -11,7 +11,6 @@ export function mountRequestList(container) {
     { id: "request-02", origin: [121.543, 25.041], destination: [121.553, 25.045], color: "#15803d", status: "pending" },
     { id: "request-03", origin: [121.517, 25.047], destination: [121.532, 25.052], color: "#c2410c", status: "pending" },
   ];
-  for (const request of requests) request.routeVisible = true;
   let nextNumber = requests.length + 1;
   let disposed = false;
   let selectedRequestId = null;
@@ -27,7 +26,6 @@ export function mountRequestList(container) {
       <div class="proj01-request-heading">
         <label for="proj01-select-${request.id}" class="proj01-request-name"><span class="proj01-request-color" style="background-color: ${request.color}" aria-hidden="true"></span><strong>需求 ${number}</strong></label>
         <span data-request-status="${request.id}" class="proj01-request-status" role="status">${statusLabels[request.status]}</span>
-        <label class="proj01-request-visibility" for="proj01-line-${request.id}"><input id="proj01-line-${request.id}" type="checkbox" name="proj01-request-line" value="${request.id}" aria-label="需求 ${number} 路線" ${request.routeVisible ? "checked" : ""}>路線</label>
       </div>
       <label for="proj01-select-${request.id}" class="proj01-request-content">
         <span class="proj01-request-coordinate">起點 ${coordinateText(request.origin)}</span>
@@ -54,32 +52,19 @@ export function mountRequestList(container) {
       || !requests.some((request) => request.id === input.value)) return;
     selectById(input.value);
   };
-  const setRouteVisible = (id, visible) => {
-    const request = requests.find((item) => item.id === id);
-    if (!request || disposed) return;
-    request.routeVisible = Boolean(visible);
-    const checkbox = container.querySelector(`#proj01-line-${id}`);
-    if (checkbox) checkbox.checked = request.routeVisible;
-    for (const listener of changeListeners) listener({ type: "visibility", id });
-  };
-  const changeVisibility = ({ target }) => {
-    if (target.type === "checkbox" && target.name === "proj01-request-line") setRouteVisible(target.value, target.checked);
-  };
   render();
   container.addEventListener("change", select);
-  container.addEventListener("change", changeVisibility);
   return {
     requests,
     selectById,
-    setRouteVisible,
     addRequest(origin, destination) {
       if (disposed) throw new Error("需求管理已釋放。");
       validateEndpoints(origin, destination);
       const number = nextNumber++;
       const request = { id: `request-${String(number).padStart(2, "0")}`, origin: [...origin], destination: [...destination],
-        color: COLORS[(number - 1) % COLORS.length], status: "pending", routeVisible: true };
+        color: COLORS[(number - 1) % COLORS.length], status: "pending" };
       requests.push(request);
-      // 僅附加新項目，保留既有 radio、checkbox 與鍵盤焦點。
+      // 僅附加新項目，保留既有 radio 與鍵盤焦點。
       container.insertAdjacentHTML("beforeend", itemHtml(request));
       for (const listener of changeListeners) listener({ type: "added", id: request.id });
       return request;
@@ -116,7 +101,6 @@ export function mountRequestList(container) {
     dispose() {
       disposed = true;
       container.removeEventListener("change", select);
-      container.removeEventListener("change", changeVisibility);
       selectionListeners.clear();
       changeListeners.clear();
     },

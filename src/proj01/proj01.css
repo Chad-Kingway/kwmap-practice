@@ -83,9 +83,7 @@
 .proj01-request input { flex: none; margin: 4px 0 0; }
 .proj01-panel .proj01-request-content { display: grid; gap: 3px; min-width: 0; margin: 0; cursor: pointer; }
 .proj01-request-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
-.proj01-panel .proj01-request-name, .proj01-panel .proj01-request-visibility { display: inline-flex; align-items: center; gap: 4px; margin: 0; cursor: pointer; }
-.proj01-request-visibility { font-size: 12px; white-space: nowrap; }
-.proj01-request-visibility input { margin: 0; }
+.proj01-panel .proj01-request-name { display: inline-flex; align-items: center; gap: 4px; margin: 0; cursor: pointer; }
 .proj01-request-color { width: 10px; height: 10px; border-radius: 50%; flex: none; }
 .proj01-request-status { margin-left: auto; color: #526075; font-size: 12px; }
 .proj01-request-coordinate { font-size: 12px; overflow-wrap: anywhere; }
