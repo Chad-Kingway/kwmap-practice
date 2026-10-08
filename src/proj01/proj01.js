@@ -101,7 +101,7 @@ export async function init() {
         <div id="proj01-request-list"></div>
       </fieldset>
       <details class="proj01-vehicle" open>
-        <summary class="proj01-vehicle-summary">車輛 01</summary>
+        <summary class="proj01-vehicle-summary"><span>車輛 01</span><button id="proj01-locate" type="button" aria-label="定位車輛 01" disabled>定位</button></summary>
         <fieldset id="proj01-vehicle-controls" class="proj01-vehicle-controls" disabled>
           <legend class="proj01-visually-hidden">車輛 01 設定</legend>
           <p id="proj01-vehicle-status" role="status" aria-live="polite">尚未就緒</p>
@@ -128,7 +128,7 @@ export async function init() {
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });
   disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
-  const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "auto-transport", "vehicle-controls", "scale", "apply-scale", "duration", "follow", "origin", "destination", "add-request", "select-origin", "select-destination"]
+  const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "auto-transport", "vehicle-controls", "scale", "apply-scale", "duration", "follow", "locate", "origin", "destination", "add-request", "select-origin", "select-destination"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   const modelSettings = createModelSettings({ initialScale: MODEL_INITIAL_SCALE, redraw: () => map.redraw() });
@@ -163,6 +163,7 @@ export async function init() {
     ui.transport.disabled = !transport?.canStart();
     ui["auto-transport"].disabled = !transport?.canStartNearest();
     ui.follow.disabled = !ready || wantsFollow || cameraLocked;
+    ui.locate.disabled = !ready || wantsFollow || cameraLocked;
     for (const endpoint of ["origin", "destination"]) {
       ui[`select-${endpoint}`].disabled = !ready || moving || transport?.busy;
       ui[`select-${endpoint}`].setAttribute("aria-pressed", String(pickMode === endpoint));
@@ -190,7 +191,7 @@ export async function init() {
     // 已查驗 1.4.3 實作：SDK 使用模型 coordinates 作為跟隨位置，移動時會更新它。
     const coordinates = model.coordinates;
     if (!Array.isArray(coordinates) || !validCoordinate(coordinates.slice(0, 2))) {
-      throw new Error("SDK 未提供有效的模型當下座標，無法準備跟隨視角。");
+      throw new Error("無法取得車輛目前的有效座標。");
     }
     return [...coordinates];
   };
@@ -384,6 +385,12 @@ export async function init() {
     if (!moving || movementStarted) scheduleLock();
     syncControls();
   }));
+  ui.locate.addEventListener("click", (event) => {
+    // 僅取消此按鈕點擊的 summary 預設切換，保留原生按鈕鍵盤啟動。
+    event.preventDefault();
+    if (!ready || wantsFollow || cameraLocked) return;
+    action(() => map.jumpTo({ center: currentPosition().slice(0, 2) }))();
+  });
   let cancelPlayback = () => {};
   // 接送路段共用 SDK 播放、位置追蹤及鏡頭流程；只有有效 onEnd 才解除播放鎖。
   const playSegment = ({ path: source, duration, onStart, onEnd, onError }) => {

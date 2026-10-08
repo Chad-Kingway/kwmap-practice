@@ -12,6 +12,7 @@ import { geographicBearing, initialPathBearing, modelRotationFromBearing, instal
 async function setup({ manualRequests = false } = {}) {
   const nodes = new Map(), timers = new Map(), queries = [], markers = [], lines = new Map(), frames = new Map();
   const camera = { locks: 0, releases: 0, moves: 0 };
+  const cameraView = { zoom: 16, pitch: 40, bearing: 27, center: [121, 25] }, cameraTargets = [];
   const renderedLines = new Map();
   let instance;
   let requestList;
@@ -83,7 +84,7 @@ async function setup({ manualRequests = false } = {}) {
     }
     on(event, callback) { if (event === "style.load") callback(); else this.click = callback; }
     off(event, callback) { if (event === "click" && this.click === callback) this.click = null; }
-    offLayer() {} jumpTo() { camera.moves++; }
+    offLayer() {} jumpTo(options) { camera.moves++; cameraTargets.push(options); Object.assign(cameraView, options); }
     redraw() {
       model.renderedScale = model.effectiveScale;
       renderedLines.clear();
@@ -123,12 +124,46 @@ async function setup({ manualRequests = false } = {}) {
     start_location: { lng: points[0][0], lat: points[0][1] },
     end_location: { lng: points.at(-1)[0], lat: points.at(-1)[1] },
   }] }] }];
-  return { ui, nodes, timers, queries, markers, lines, renderedLines, model, result, camera, frames, requestList, requestMap, requestQueries, requestMarkers, requestLines,
+  return { ui, nodes, timers, queries, markers, lines, renderedLines, model, result, camera, cameraView, cameraTargets, frames, requestList, requestMap, requestQueries, requestMarkers, requestLines,
     click: (lng, lat, overrides = {}) => instance.click({ lngLat: { lng, lat }, originalEvent: { button: 0, target: node("map"), ...overrides } }),
     frame: () => { const batch = [...frames.values()]; frames.clear(); for (const fn of batch) fn(); },
     disposeVehicle: () => vm.runInContext("disposeTransport(); disposePlayback();", context),
     add: () => ui("add-request").handlers.click() };
 }
+
+test("定位使用點擊當下車位，只改中心；跟隨與待鎖定時拒絕定位，解除後恢復", async () => {
+  const h = await setup();
+  const locate = () => h.ui("locate").handlers.click({ preventDefault() {} });
+  h.model.coordinates = [121.57, 25.04, 0];
+  locate();
+  assert.deepEqual(Array.from(h.cameraView.center), [121.57, 25.04]);
+  assert.equal(h.cameraView.zoom, 16); assert.equal(h.cameraView.pitch, 40); assert.equal(h.cameraView.bearing, 27);
+  assert.equal(h.camera.locks, 0);
+  assert.deepEqual(h.model.coordinates, [121.57, 25.04, 0]);
+  h.model.coordinates = [NaN, 25, 0];
+  locate();
+  assert.equal(h.camera.moves, 1);
+  assert.match(h.ui("error").textContent, /有效座標/);
+  h.model.coordinates = [121.561, 25.0334, 0];
+  h.ui("follow").handlers.click();
+  assert.equal(h.ui("locate").disabled, true);
+  locate(); assert.equal(h.camera.moves, 1);
+  h.frame();
+  const moves = h.camera.moves;
+  locate(); assert.equal(h.camera.moves, moves);
+  assert.equal(h.camera.releases, 0);
+  const map = h.nodes.get("map");
+  map.handlers.pointerdown({ pointerType: "mouse", pointerId: 1, button: 0, buttons: 1, clientX: 0, clientY: 0 });
+  map.handlers.pointermove({ pointerId: 1, buttons: 1, clientX: 10, clientY: 0 });
+  assert.equal(h.ui("locate").disabled, false);
+  selectRequest(h, "request-01"); h.ui("transport").handlers.click();
+  const playback = h.model.playback;
+  h.model.coordinates = [121.563, 25.034, 0];
+  locate();
+  assert.deepEqual(Array.from(h.cameraView.center), [121.563, 25.034]);
+  assert.equal(h.model.playback, playback); assert.equal(h.model.playing, true);
+  assert.equal(h.camera.locks, 1);
+});
 
 test("地圖左鍵拖曳解除跟隨，取消待鎖定回呼且不中斷播放", async () => {
   const h = await setup();

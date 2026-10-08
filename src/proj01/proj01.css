@@ -41,6 +41,7 @@
 .proj01-vehicle { margin: 12px 0; border: 1px solid #ccd4df; border-radius: 6px; }
 .proj01-vehicle-summary { padding: 12px; background: #edf4ff; border-radius: 6px; font-weight: bold; cursor: pointer; }
 .proj01-vehicle-summary::marker { color: #175cd3; }
+.proj01-panel .proj01-vehicle-summary button { float: right; width: auto; margin: -3px 0; padding: 4px 8px; font-size: 12px; }
 .proj01-vehicle[open] > .proj01-vehicle-summary { border-radius: 6px 6px 0 0; border-bottom: 1px solid #ccd4df; }
 .proj01-panel .proj01-vehicle-controls { margin: 0; border: 0; }
 .proj01-vehicle-section + .proj01-vehicle-section { margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e8f0; }
