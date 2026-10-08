@@ -5,12 +5,17 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
   const lineIds = new Set();
   let disposed = false;
   let cancelPending;
+  const queue = [];
+  const queued = new Set();
+  let draining = false;
+  let loading = Promise.resolve();
   const lineId = (id) => `proj01-request-route-${id}`;
   const drawRoute = (request) => {
     const route = requestList.getRouteState(request.id);
-    if (route?.status !== "ready") return;
     const id = lineId(request.id);
     if (lineIds.has(id)) map.three.remove3dObjectById(id);
+    lineIds.delete(id);
+    if (!request.routeVisible || route?.status !== "ready") return;
     lineIds.add(id);
     map.three.add3dLine({
       id, coordinates: route.coordinates.map(([lng, lat]) => [lng, lat, 0]),
@@ -29,8 +34,8 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
     }
     map.redraw();
   };
-  // 僅管理需求端點，不使用車輛的 routeMarkers 或路線 ID。
-  for (const [index, request] of requestList.requests.entries()) {
+  // 需求端點與任務路線分開管理；新增只附加自己的物件。
+  const addMarkers = (request) => {
     const endpoints = [];
     markers.set(request.id, endpoints);
     try {
@@ -39,7 +44,7 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
         icon.className = "proj01-request-marker";
         icon.style.backgroundColor = request.color;
         icon.classList.toggle("proj01-request-selected", request.id === requestList.selectedRequestId);
-        icon.textContent = `${String(index + 1).padStart(2, "0")} ${endpoint}`;
+        icon.textContent = `${request.id.slice("request-".length)} ${endpoint}`;
         const marker = new sdk.Marker({ position: [...point], altitude: 0, icon, title: `需求 ${icon.textContent}` });
         endpoints.push({ marker, icon });
       }
@@ -48,10 +53,13 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
       markers.set(request.id, []);
       requestList.setRouteState(request.id, { status: "error", error: `需求標記建立失敗：${error.message}` });
     }
-  }
-  map.redraw();
+  };
   const unsubscribe = requestList.subscribeSelection(updateSelection);
-  const unsubscribeStatus = requestList.subscribeChange(({ type }) => { if (type === "status") updateSelection(); });
+  const unsubscribeStatus = requestList.subscribeChange(({ type, id }) => {
+    if (disposed) return;
+    if (type === "added") enqueue(requestList.requests.find((request) => request.id === id));
+    else if (type === "status" || type === "visibility") updateSelection();
+  });
   const query = (request) => new Promise((resolve, reject) => {
     let finished = false;
     const finish = (error, response) => {
@@ -72,43 +80,57 @@ export function mountRequestMap({ map, sdk, directions, requestList }) {
     } catch (error) { finish(error); }
   });
   const loadRoutes = async () => {
-    for (const request of requestList.requests) {
-      if (disposed) return;
-      if (!directions) {
-        requestList.setRouteState(request.id, { status: "error", error: "道路服務無法使用。" });
-        continue;
-      }
-      requestList.setRouteState(request.id, { status: "loading" });
-      try {
-        const { candidates, status } = await query(request);
+    draining = true;
+    try {
+      while (queue.length) {
         if (disposed) return;
-        if (status !== "OK") throw new Error(`道路服務回傳：${String(status)}。`);
-        if (!Array.isArray(candidates) || candidates.length === 0) {
-          requestList.setRouteState(request.id, { status: "unavailable", error: "服務未提供可用路線。" });
+        const request = queue.shift();
+        if (!directions) {
+          requestList.setRouteState(request.id, { status: "error", error: "道路服務無法使用。" });
           continue;
         }
-        const route = normalizeDirections(candidates, (encoded) => map.decodePolyline(encoded));
-        requestList.setRouteState(request.id, { status: "ready", ...route });
-        drawRoute(request);
-        map.redraw();
-      } catch (error) {
-        if (disposed) return;
-        map.three.remove3dObjectById(lineId(request.id));
-        lineIds.delete(lineId(request.id));
-        requestList.setRouteState(request.id, { status: "error", error: error.message || String(error) });
-        map.redraw();
+        requestList.setRouteState(request.id, { status: "loading" });
+        try {
+          const { candidates, status } = await query(request);
+          if (disposed) return;
+          if (status !== "OK") throw new Error(`道路服務回傳：${String(status)}。`);
+          if (!Array.isArray(candidates) || candidates.length === 0) {
+            requestList.setRouteState(request.id, { status: "unavailable", error: "服務未提供可用路線。" });
+            continue;
+          }
+          const route = normalizeDirections(candidates, (encoded) => map.decodePolyline(encoded));
+          requestList.setRouteState(request.id, { status: "ready", ...route });
+          drawRoute(request);
+          map.redraw();
+        } catch (error) {
+          if (disposed) return;
+          map.three.remove3dObjectById(lineId(request.id));
+          lineIds.delete(lineId(request.id));
+          requestList.setRouteState(request.id, { status: "error", error: error.message || String(error) });
+          map.redraw();
+        }
       }
-    }
+    } finally { draining = false; }
   };
-  const loading = loadRoutes();
+  const enqueue = (request) => {
+    if (disposed || !request || queued.has(request.id)) return;
+    queued.add(request.id);
+    addMarkers(request);
+    queue.push(request);
+    map.redraw();
+    if (!draining) loading = loadRoutes();
+  };
+  for (const request of requestList.requests) enqueue(request);
   return {
-    loading,
+    get loading() { return loading; },
     dispose() {
       if (disposed) return;
       disposed = true;
       unsubscribe();
       unsubscribeStatus();
       cancelPending?.();
+      queue.length = 0;
+      queued.clear();
       for (const endpoints of markers.values()) for (const { marker } of endpoints) marker.remove();
       for (const id of lineIds) map.three.remove3dObjectById(id);
       markers.clear();

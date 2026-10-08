@@ -1,6 +1,6 @@
 import { accessKey, accessToken } from "../config.js";
 import { loadSdk } from "../sdk.js";
-import { normalizeDirections, validateEndpoints, parseCoordinate, validCoordinate } from "./proj01-route.js";
+import { validateEndpoints, parseCoordinate, validCoordinate } from "./proj01-route.js";
 import { geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix } from "./proj01-heading.js";
 import { mountRequestList } from "./proj01-requests.js";
 import { mountRequestMap } from "./proj01-request-map.js";
@@ -13,10 +13,8 @@ const INITIAL_ROTATION = { x: 90, y: 180, z: 0 };
 const INITIAL = { scale: 10, duration: 10 };
 const FOLLOW_CAMERA = { pitch: 65, zoom: 18 };
 const DEFAULT_ORIGIN = [121.561, 25.0334];
-const DEFAULT_DESTINATION = [121.567, 25.034];
 // 已查驗 SDK 使用 CatmullRomCurve3；catmullrom 的零張力使每段幾何沿原線段，不切角。
 const ROUTE_CURVE = { closed: false, curveType: "catmullrom", tension: 0 };
-const LINE_ID = "proj01-path";
 const FOLLOW_DRAG_THRESHOLD = 5;
 let disposePanelWheel;
 let disposeMapDrag;
@@ -79,6 +77,17 @@ export async function init() {
       <p id="proj01-error" role="alert" hidden></p>
       <fieldset class="proj01-requests">
         <legend>需求管理</legend>
+        <div class="proj01-coordinate-row">
+          <div><label for="proj01-origin">起點</label>
+            <input id="proj01-origin" type="text" placeholder="lng, lat"></div>
+          <button id="proj01-select-origin" type="button" aria-pressed="false" disabled>選取起點</button>
+        </div>
+        <div class="proj01-coordinate-row">
+          <div><label for="proj01-destination">終點</label>
+            <input id="proj01-destination" type="text" placeholder="lng, lat"></div>
+          <button id="proj01-select-destination" type="button" aria-pressed="false" disabled>選取終點</button>
+        </div>
+        <button id="proj01-add-request" type="button">新增需求</button>
         <div id="proj01-request-list"></div>
       </fieldset>
       <details class="proj01-vehicle" open>
@@ -88,34 +97,18 @@ export async function init() {
           <p id="proj01-vehicle-status" role="status" aria-live="polite">尚未就緒</p>
           <button id="proj01-transport" type="button">接送此需求</button>
           <button id="proj01-auto-transport" type="button" title="依車輛與需求起點的直線距離選擇">自動接送一筆</button>
-          <section id="proj01-route" class="proj01-vehicle-section" aria-labelledby="proj01-route-title">
-            <h2 id="proj01-route-title" class="proj01-section-title">汽車路線規劃</h2>
-            <div id="proj01-route-query" class="proj01-route-query">
-              <div class="proj01-coordinate-row">
-                <div><label for="proj01-origin">起點</label>
-                  <input id="proj01-origin" type="text" placeholder="lng, lat" value="${DEFAULT_ORIGIN.join(", ")}"></div>
-                <button id="proj01-select-origin" type="button" aria-pressed="false">選取起點</button>
-              </div>
-              <div class="proj01-coordinate-row">
-                <div><label for="proj01-destination">終點</label>
-                  <input id="proj01-destination" type="text" placeholder="lng, lat" value="${DEFAULT_DESTINATION.join(", ")}"></div>
-                <button id="proj01-select-destination" type="button" aria-pressed="false">選取終點</button>
-              </div>
-              <button id="proj01-plan" type="button">規劃汽車路線</button>
-              <label class="proj01-check"><input id="proj01-path" type="checkbox" checked>顯示規劃路線</label>
+          <section class="proj01-vehicle-section">
               <label for="proj01-scale" class="proj01-section-title">模型比例</label>
               <div class="proj01-input-row">
                 <input id="proj01-scale" type="number" min="0.1" max="1000" step="0.1" value="${INITIAL.scale}">
                 <button id="proj01-apply-scale" type="button">套用</button>
               </div>
-              <label for="proj01-duration" class="proj01-section-title">路徑移動</label>
+              <label for="proj01-duration" class="proj01-section-title">接送展示時間</label>
               <div class="proj01-input-row">
-                <input id="proj01-duration" title="手動移動或整筆接送任務的總展示時間（秒）" type="number" min="1" max="300" step="1" value="${INITIAL.duration}">
+                <input id="proj01-duration" title="整筆接送任務的總展示時間（秒）" type="number" min="1" max="300" step="1" value="${INITIAL.duration}">
                 <span class="proj01-unit">（秒）</span>
               </div>
-              <button id="proj01-start" type="button">開始沿路徑移動</button>
               <button id="proj01-follow" type="button">鏡頭跟隨模型</button>
-            </div>
           </section>
         </fieldset>
       </details>
@@ -130,17 +123,12 @@ export async function init() {
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });
   disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
-  const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "auto-transport", "vehicle-controls", "scale", "apply-scale", "duration", "start", "path", "follow", "origin", "destination", "plan", "select-origin", "select-destination"]
+  const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "auto-transport", "vehicle-controls", "scale", "apply-scale", "duration", "follow", "origin", "destination", "add-request", "select-origin", "select-destination"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   let model;
   let sdk;
   let directions;
-  let activePath = [];
-  let lineId = LINE_ID;
-  let routeMarkers = [];
-  let routing = false;
-  let queryVersion = 0;
   let moving = false;
   let transport;
   let taskLineId = null;
@@ -162,19 +150,14 @@ export async function init() {
   };
   const clearError = () => { ui.error.hidden = true; ui.error.textContent = ""; };
   const syncControls = () => {
-    // 整組只在尚未就緒時停用；查詢及播放期間各控制項依功能分別管理。
+    // 需求草稿獨立於車輛停用範圍，接送期間仍可新增。
     ui["vehicle-controls"].disabled = !ready;
-    ui.scale.disabled = ui["apply-scale"].disabled = ui.duration.disabled = !ready || moving || routing || transport?.busy;
-    ui.path.disabled = !ready;
-    for (const name of ["origin", "destination", "plan"]) {
-      ui[name].disabled = !ready || moving || routing || transport?.busy || !directions;
-    }
-    ui.start.disabled = !ready || moving || routing || transport?.busy || activePath.length < 2;
+    ui.scale.disabled = ui["apply-scale"].disabled = ui.duration.disabled = !ready || moving || transport?.busy;
     ui.transport.disabled = !transport?.canStart();
     ui["auto-transport"].disabled = !transport?.canStartNearest();
     ui.follow.disabled = !ready || wantsFollow || cameraLocked;
     for (const endpoint of ["origin", "destination"]) {
-      ui[`select-${endpoint}`].disabled = !ready || moving || routing || transport?.busy || !directions;
+      ui[`select-${endpoint}`].disabled = !ready || moving || transport?.busy;
       ui[`select-${endpoint}`].setAttribute("aria-pressed", String(pickMode === endpoint));
     }
   };
@@ -259,15 +242,6 @@ export async function init() {
       trackPosition(run, onError);
     });
   };
-  const groundPath = () => activePath.map(([lng, lat]) => [lng, lat, 0]);
-  const updateLine = () => {
-    map.three.remove3dObjectById(lineId);
-    if (ui.path.checked && activePath.length >= 2) {
-      map.three.add3dLine({ id: lineId, coordinates: groundPath(), color: "#ff7a18", width: 5 });
-    }
-    // 物件更新完成後主動重繪，避免重新顯示路線時等到鏡頭操作才更新畫面。
-    map.redraw();
-  };
   const action = (fn) => () => {
     if (!ready) return;
     clearError();
@@ -319,7 +293,7 @@ export async function init() {
   };
   const beginPick = (event) => {
     resetPickGesture();
-    if (!pickMode || !ready || moving || routing || transport?.busy || event.pointerType !== "mouse" || event.button !== 0 || event.buttons !== 1) return;
+    if (!pickMode || !ready || moving || transport?.busy || event.pointerType !== "mouse" || event.button !== 0 || event.buttons !== 1) return;
     pickGesture = { id: event.pointerId, x: event.clientX, y: event.clientY, dragged: false };
   };
   const movePick = (event) => {
@@ -337,7 +311,7 @@ export async function init() {
     const allowed = pickClickAllowed;
     pickClickAllowed = false;
     // 已在實際 mapThree 1.4.3 查驗 click 的 lngLat 及 originalEvent；不自行轉換像素。
-    if (!allowed || !pickMode || !ready || moving || routing || transport?.busy || event.originalEvent?.button !== 0
+    if (!allowed || !pickMode || !ready || moving || transport?.busy || event.originalEvent?.button !== 0
       || !mapElement.contains(event.originalEvent.target)) return;
     const { lng, lat } = event.lngLat ?? {};
     if (!Number.isFinite(lng) || !Number.isFinite(lat) || lng < -180 || lng > 180 || lat < -90 || lat > 90) {
@@ -347,7 +321,7 @@ export async function init() {
     const endpoint = pickMode;
     ui[endpoint].value = `${lng}, ${lat}`;
     clearError();
-    cancelPick(`已填入${endpoint === "origin" ? "起點" : "終點"}經緯度；請按「規劃汽車路線」查詢。`);
+    cancelPick(`已填入${endpoint === "origin" ? "起點" : "終點"}經緯度；請按「新增需求」。`);
   };
   const escapePick = (event) => { if (event.key === "Escape" && pickMode) cancelPick(); };
   const pickListeners = [
@@ -367,7 +341,7 @@ export async function init() {
   };
   for (const endpoint of ["origin", "destination"]) {
     ui[`select-${endpoint}`].addEventListener("click", action(() => {
-      if (moving || routing || transport?.busy || !directions) return;
+      if (!ready || moving || transport?.busy) return;
       if (pickMode === endpoint) { cancelPick(); return; }
       releaseFollow();
       resetPickGesture();
@@ -377,81 +351,24 @@ export async function init() {
       syncControls();
     }));
   }
-  const installRoute = (data, request) => {
-    const nextLine = `${LINE_ID}-${request}`;
-    const nextMarkers = [];
-    const path = data.coordinates.map(([lng, lat]) => [lng, lat, 0]);
-    try {
-      for (const [index, point] of [path[0], path.at(-1)].entries()) {
-        const icon = document.createElement("span");
-        icon.className = `proj01-route-marker ${index ? "proj01-route-end" : "proj01-route-origin"}`;
-        icon.textContent = index ? "終" : "起";
-        nextMarkers.push(new sdk.Marker({ position: point.slice(0, 2), altitude: 0, icon, title: index ? "道路路線終點" : "道路路線起點" }));
-      }
-      if (ui.path.checked) map.three.add3dLine({ id: nextLine, coordinates: path, color: "#ff7a18", width: 5 });
-      releaseLock();
-      placeAtRouteStart(path);
-    } catch (error) {
-      map.three.remove3dObjectById(nextLine);
-      for (const marker of nextMarkers) marker.remove();
-      throw error;
-    }
-    // 幾何驗證與新物件建立成功後，才替換上一份路線及其標記。
-    map.three.remove3dObjectById(lineId);
-    for (const marker of routeMarkers) marker.remove();
-    activePath = data.coordinates;
-    lineId = nextLine;
-    routeMarkers = nextMarkers;
-    runVersion++;
-    if (wantsFollow) scheduleLock();
-    else map.jumpTo({ center: position.slice(0, 2), zoom: 15.5, pitch: 60, bearing: travelBearing });
-  };
-  ui.plan.addEventListener("click", async () => {
-    if (!ready || !directions || moving || routing || transport?.busy) return;
-    cancelPick();
+  ui["add-request"].addEventListener("click", () => {
     clearError();
-    let origin;
-    let destination;
     try {
-      origin = parseCoordinate(ui.origin.value, "起點");
-      destination = parseCoordinate(ui.destination.value, "終點");
+      const origin = parseCoordinate(ui.origin.value, "起點");
+      const destination = parseCoordinate(ui.destination.value, "終點");
       validateEndpoints(origin, destination);
-    } catch (error) {
-      showError(error);
-      return;
-    }
-    const request = ++queryVersion;
-    routing = true;
-    syncControls();
-    try {
-      const response = new Promise((resolve, reject) => {
-        // 實際 SDK 的回呼傳入候選陣列與狀態，並另回傳 Promise；同時處理其拒絕。
-        const pending = directions.route({ origin, destination, travelMode: "DRIVING" }, (candidates, routeStatus) => resolve({ candidates, routeStatus }));
-        Promise.resolve(pending).catch(reject);
-      });
-      const { candidates, routeStatus } = await withTimeout(response, 20000, "路線查詢逾時，請重試；遲到的回應不會取代目前路線。");
-      if (request !== queryVersion) return;
-      if (routeStatus !== "OK") throw new Error(`路線服務回傳失敗狀態：${String(routeStatus)}。`);
-      const data = normalizeDirections(candidates, (encoded) => map.decodePolyline(encoded));
-      installRoute(data, request);
-      status("模型已移到道路路線起點並朝向起始前進方向，尚未開始移動。");
-    } catch (error) {
-      if (request !== queryVersion) return;
-      showError(error);
-    } finally {
-      if (request === queryVersion) {
-        queryVersion++;
-        routing = false;
-        syncControls();
-      }
-    }
+      const request = requestList.addRequest(origin, destination);
+      ui.origin.value = ui.destination.value = "";
+      cancelPick();
+      // 接送中只附加需求，保留原本執行狀態、車位與鏡頭。
+      if (!transport?.busy) status(`已新增需求 ${request.id.slice("request-".length)}。`);
+    } catch (error) { showError(error); }
   });
 
   ui["apply-scale"].addEventListener("click", action(() => {
     // SDK 以新增模型時的比例為基準，因此將 UI 的整體比例換成相對倍率。
-    if (!moving && !routing && !transport?.busy) model.setScale(number(ui.scale) / INITIAL.scale);
+    if (!moving && !transport?.busy) model.setScale(number(ui.scale) / INITIAL.scale);
   }));
-  ui.path.addEventListener("change", action(updateLine));
   ui.follow.addEventListener("click", action(() => {
     if (wantsFollow || cameraLocked) return;
     cancelPick();
@@ -461,16 +378,15 @@ export async function init() {
     syncControls();
   }));
   let cancelPlayback = () => {};
-  // 手動路徑與接送共用 SDK 播放、位置追蹤及鏡頭流程；只有有效 onEnd 才解除播放鎖。
-  const playSegment = ({ path: source, duration, onStart, onEnd, onError, task = false }) => {
+  // 接送路段共用 SDK 播放、位置追蹤及鏡頭流程；只有有效 onEnd 才解除播放鎖。
+  const playSegment = ({ path: source, duration, onStart, onEnd, onError }) => {
     const path = source.map(([lng, lat]) => [lng, lat, 0]);
     const run = ++runVersion;
     let finished = false, failed = false, attempted = false, completionFrame = null;
     moving = true;
     movementStarted = false;
     syncControls();
-    status(task ? ui["vehicle-status"].textContent + "…" : `沿路徑移動中（${duration / 1000} 秒）…`);
-    if (!task) ui["vehicle-status"].textContent = "路徑移動中";
+    status(ui["vehicle-status"].textContent + "…");
     const fail = (error) => {
       if (run !== runVersion || finished || failed) return;
       failed = true;
@@ -481,11 +397,7 @@ export async function init() {
       moving = attempted;
       if (!attempted) { finished = true; movementStarted = false; }
       syncControls();
-      if (onError) onError(error, { stopped: !attempted, attempted });
-      else {
-        showError(new Error(error.message + (attempted ? " 未確認可用的公開停止介面，請等待動畫結束；若未收到結束回呼，請重新整理。" : "")));
-        ui["vehicle-status"].textContent = attempted ? "移動異常（等待動畫結束）" : "閒置";
-      }
+      onError(error, { stopped: !attempted, attempted });
     };
     cancelPlayback = () => {
       finished = true;
@@ -522,7 +434,7 @@ export async function init() {
             moving = movementStarted = false;
             try {
               samplePosition();
-              if (!failed && task) {
+              if (!failed) {
                 // onEnd 後下一個繪製幀再確認最終座標，避免與 SDK 當幀更新及下一段競爭。
                 if (distanceMeters(currentPosition(), path.at(-1)) > ROAD_SNAP_METERS) throw new Error("路段結束座標未到達預期終點，接送已中斷。");
                 model.setCoordinates([...path.at(-1)]);
@@ -532,17 +444,13 @@ export async function init() {
               failed = true;
               wantsFollow = false;
               try { releaseLock(); } catch (releaseError) { showError(releaseError); }
-              if (onError) onError(error, { stopped: true, attempted: true }); else showError(error);
+              onError(error, { stopped: true, attempted: true });
             }
             if (wantsFollow && !cameraLocked) scheduleLock();
             syncControls();
-            if (onEnd) onEnd();
-            else {
-              ui["vehicle-status"].textContent = "閒置";
-              status(failed ? "移動中斷，動畫已結束。" : "路徑移動完成，可調整模型或再次開始。");
-            }
+            onEnd();
           };
-          if (task) completionFrame = requestAnimationFrame(complete); else complete();
+          completionFrame = requestAnimationFrame(complete);
         },
       });
       // Promise 只處理啟動拒絕；完成與兩段接續以 onEnd 為準。
@@ -561,12 +469,12 @@ export async function init() {
   };
   transport = createTransport({
     requestList,
-    isAvailable: () => ready && !moving && !routing && Boolean(directions),
+    isAvailable: () => ready && !moving && Boolean(directions),
     getPosition: currentPosition,
     getDuration: () => number(ui.duration) * 1000,
     getDirections: () => directions,
     decodePolyline: (encoded) => map.decodePolyline(encoded),
-    playSegment: (options) => playSegment({ ...options, task: true }),
+    playSegment,
     showSegment: (path, color, id) => {
       clearTaskLine();
       taskLineId = `proj01-transport-route-${id}`;
@@ -597,13 +505,7 @@ export async function init() {
     cancelPick();
     void transport.startNearest();
   }));
-  ui.start.addEventListener("click", action(() => {
-    if (moving || routing || transport.busy) return;
-    if (activePath.length < 2) throw new Error("請先成功規劃一條有效路線。");
-    const duration = number(ui.duration) * 1000;
-    cancelPick();
-    playSegment({ path: activePath, duration });
-  }));
+
 
   try {
     await checkModelAssets();
@@ -661,13 +563,12 @@ export async function init() {
     }
     installSdkHeadingQuaternionFix(model);
     setBearing(0);
-    updateLine();
     ready = true;
     ui["vehicle-status"].textContent = "閒置";
     pickMap = map;
     map.on("click", handlePickClick);
     syncControls();
-    status("模型載入完成，可以調整設定；請先規劃路線再開始移動。");
+    status("模型載入完成。");
   } catch (error) {
     ready = false;
     syncControls();

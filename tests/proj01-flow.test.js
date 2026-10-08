@@ -23,6 +23,7 @@ async function setup({ manualRequests = false } = {}) {
       classList: { add() {}, remove() {} },
       contains(target) { return target === this; },
       querySelector(selector) { return node(selector); },
+      insertAdjacentHTML(_position, html) { this.innerHTML += html; },
       setAttribute(name, value) { this.attributes[name] = value; },
       get valueAsNumber() { return this.value === "" ? NaN : Number(this.value); },
       checkValidity() { return Number.isFinite(this.valueAsNumber) && this.valueAsNumber >= Number(this.min) && this.valueAsNumber <= Number(this.max); },
@@ -123,132 +124,8 @@ async function setup({ manualRequests = false } = {}) {
     click: (lng, lat, overrides = {}) => instance.click({ lngLat: { lng, lat }, originalEvent: { button: 0, target: node("map"), ...overrides } }),
     frame: () => { const batch = [...frames.values()]; frames.clear(); for (const fn of batch) fn(); },
     disposeVehicle: () => vm.runInContext("disposeTransport(); disposePlayback();", context),
-    plan: () => ui("plan").handlers.click() };
+    add: () => ui("add-request").handlers.click() };
 }
-
-test("逾時及過期回應不覆蓋新路線，失敗保留有效路線，播放阻止新查詢", async () => {
-  const h = await setup();
-  const points = [[121.561, 25.0334], [121.562, 25.034]];
-  assert.equal(h.ui("start").disabled, true);
-  const oldQuery = h.plan();
-  assert.equal(h.ui("plan").disabled, true);
-  await h.plan();
-  assert.equal(h.queries.length, 1);
-  const timeout = [...h.timers.values()].find(({ delay }) => delay === 20000);
-  timeout.fn();
-  await oldQuery;
-  assert.equal(h.timers.size, 0);
-  assert.equal(h.ui("plan").disabled, false);
-  assert.equal(h.ui("start").disabled, true);
-  assert.match(h.ui("error").textContent, /逾時/);
-
-  const newQuery = h.plan();
-  h.queries[1].callback(h.result(points, "新路線"), "OK");
-  await newQuery;
-  const success = h.ui("status").textContent;
-  h.queries[0].callback(h.result(points, "過期路線"), "OK");
-  await Promise.resolve();
-  assert.equal(h.ui("status").textContent, success);
-  assert.equal(h.timers.size, 0);
-  assert.equal(h.ui("start").disabled, false);
-  assert.equal(h.model.playback, null);
-  assert.equal(h.lines.size, 1);
-  assert.equal(h.markers.filter((marker) => !marker.removed).length, 2);
-
-  const noRoute = h.plan();
-  assert.equal(h.ui("vehicle-controls").disabled, false);
-  assert.equal(h.ui("path").disabled, false);
-  h.ui("path").checked = false;
-  h.ui("path").handlers.change();
-  assert.equal(h.lines.size, 0);
-  assert.equal(h.renderedLines.size, 0, "關閉路線後畫面立即清除");
-  h.ui("path").checked = true;
-  h.ui("path").handlers.change();
-  assert.equal(h.lines.size, 1);
-  assert.deepEqual([...h.renderedLines], [...h.lines], "新增路線完成後才重繪，不需要鏡頭操作");
-  h.queries[2].callback([], "OK");
-  await noRoute;
-  assert.match(h.ui("error").textContent, /可用路線/);
-  assert.equal(h.lines.size, 1);
-  assert.equal(h.ui("start").disabled, false);
-
-  const replacement = h.plan();
-  h.queries[3].callback(h.result(points.toReversed()), "OK");
-  await replacement;
-  assert.equal(h.lines.size, 1);
-  assert.equal(h.markers.filter((marker) => !marker.removed).length, 2);
-  assert.equal(h.markers[0].removed, true);
-  h.ui("start").handlers.click();
-  assert.equal(h.ui("vehicle-controls").disabled, false);
-  assert.equal(h.ui("duration").disabled, true);
-  for (const name of ["scale", "apply-scale", "origin", "destination"]) {
-    assert.equal(h.ui(name).disabled, true, "合併後仍分別停用播放期間不能修改的控制項");
-  }
-  assert.equal(h.ui("start").disabled, true);
-  assert.equal(h.ui("follow").disabled, false);
-  assert.equal(h.ui("plan").disabled, true);
-  assert.equal(h.ui("vehicle-controls").disabled, false);
-  assert.equal(h.ui("path").disabled, false);
-  h.ui("path").checked = false;
-  h.ui("path").handlers.change();
-  assert.equal(h.lines.size, 0);
-  h.ui("path").checked = true;
-  h.ui("path").handlers.change();
-  assert.equal(h.lines.size, 1);
-  await h.plan();
-  assert.equal(h.queries.length, 4);
-  assert.equal(h.model.playback.curveOptions.tension, 0);
-  assert.equal(h.model.playback.trackHeading, true);
-  assert.deepEqual(JSON.parse(JSON.stringify(h.model.playback.path)), points.toReversed().map((point) => [...point, 0]));
-  h.model.coordinates = [...points[0], 0];
-  h.model.playback.onEnd();
-  assert.equal(h.ui("duration").disabled, false);
-  assert.equal(h.ui("scale").disabled, false);
-  assert.equal(h.ui("start").disabled, false);
-  assert.equal(h.ui("plan").disabled, false);
-});
-
-test("道路吸附起點、第一段方向與重播一致，失敗不改變位置及朝向", async () => {
-  const h = await setup();
-  assert.equal(h.nodes.has("proj01-heading"), false);
-  assert.equal(h.nodes.has("proj01-rotation"), false);
-  assert.equal(h.nodes.has("proj01-height"), false);
-  assert.equal(h.model.creationOptions.coordinates[2], 0);
-  const points = [[121.56, 25.03], [121.56, 25.03], [121.56, 25.031], [121.559, 25.031]];
-  const request = h.plan();
-  h.queries[0].callback(h.result(points), "OK");
-  await request;
-  assert.deepEqual(h.model.coordinates, [...points[0], 0]);
-  assert.ok([...h.lines.values()].every((line) => line.coordinates.every((point) => point[2] === 0)));
-  assert.ok(h.markers.every((marker) => marker.options.altitude === 0));
-  h.ui("path").checked = false; h.ui("path").handlers.change();
-  h.ui("path").checked = true; h.ui("path").handlers.change();
-  assert.ok([...h.lines.values()].every((line) => line.coordinates.every((point) => point[2] === 0)));
-  assert.notDeepEqual(h.model.coordinates.slice(0, 2), h.queries[0].options.origin);
-  assert.equal(h.model.rotations.at(-1).z, 180);
-  assert.equal(h.model.playback, null);
-
-  const position = [...h.model.coordinates], rotationCount = h.model.rotations.length;
-  for (const [candidates, status] of [[[], "OK"], [h.result(points), "ERROR"], [[{ legs: [] }], "OK"]]) {
-    const pending = h.plan();
-    h.queries.at(-1).callback(candidates, status);
-    await pending;
-    assert.deepEqual(h.model.coordinates, position);
-    assert.equal(h.model.rotations.length, rotationCount);
-  }
-  for (let replay = 0; replay < 2; replay++) {
-    h.ui("start").handlers.click();
-    assert.deepEqual(h.model.coordinates, [...points[0], 0]);
-    assert.equal(h.model.rotations.at(-1).z, 180);
-    assert.equal(h.model.playback.trackHeading, true);
-    assert.ok(h.model.playback.path.every((point) => point[2] === 0));
-    const rotations = h.model.rotations.length;
-    // SDK 負責播放途中的方向；測試只模擬到達終點，不呼叫手動 setRotation。
-    h.model.coordinates = [...points.at(-1), 0];
-    h.model.playback.onEnd();
-    assert.equal(h.model.rotations.length, rotations);
-  }
-});
 
 test("地圖左鍵拖曳解除跟隨，取消待鎖定回呼且不中斷播放", async () => {
   const h = await setup();
@@ -281,39 +158,32 @@ test("地圖左鍵拖曳解除跟隨，取消待鎖定回呼且不中斷播放",
   assert.equal(h.camera.locks, 0, "取消待鎖定且過期回呼不能重新鎖定");
   assert.equal(h.ui("follow").disabled, false);
 
-  const points = [[121.561, 25.0334], [121.562, 25.034]];
-  const planning = h.plan(); h.queries[0].callback(h.result(points), "OK"); await planning;
-  for (let replay = 0; replay < 2; replay++) {
+  for (const id of ["request-01", "request-02"]) {
+    const request = h.requestList.requests.find(item => item.id === id);
+    h.model.coordinates = [...request.origin, 0];
+    selectRequest(h, id);
     h.ui("follow").handlers.click(); h.frame();
-    assert.equal(h.ui("follow").disabled, true);
-    h.ui("start").handlers.click();
-    const playback = h.model.playback, locks = h.camera.locks;
-    if (replay === 1) h.frame(); // 分別驗證等待重鎖及已重鎖的播放。
-    const releases = h.camera.releases;
+    h.ui("transport").handlers.click();
+    const playback = h.model.playback;
+    const stale = [...h.frames.values()];
     pointer("pointerdown"); pointer("pointermove", { clientX: 110 });
-    h.frame();
+    for (const fn of stale) fn(); h.frame();
     assert.equal(h.ui("follow").disabled, false);
-    assert.equal(h.camera.locks, locks + (replay === 1 ? 1 : 0));
-    assert.equal(h.camera.releases, releases + (replay === 1 ? 1 : 0));
     assert.equal(h.model.playing, true);
-    assert.equal(h.model.playback, playback, "原本的播放流程不能重啟");
-    pointer("pointerdown"); pointer("pointermove", { clientX: 120 });
-    assert.equal(h.model.playback, playback, "自由鏡頭拖曳不影響播放");
-    playback.onEnd();
+    assert.equal(h.model.playback, playback, "拖曳不停止或重啟接送");
+    endSegment(h, playback);
   }
 });
 
-test("地圖選點切換及取消，只接受有效左鍵點擊，不改變既有路線與模型", async () => {
+test("地圖選點切換及取消，只接受有效左鍵點擊，只更新草稿，不建立需求或移動模型", async () => {
   const h = await setup();
   const map = h.nodes.get("map");
   const pointer = (type, overrides = {}) => map.handlers[type]({ pointerType: "mouse", pointerId: 1, button: 0, buttons: 1, clientX: 100, clientY: 100, ...overrides });
   const select = (endpoint) => h.ui(`select-${endpoint}`).handlers.click();
   const pressed = (endpoint) => h.ui(`select-${endpoint}`).attributes["aria-pressed"];
   const click = (lng, lat, overrides) => { pointer("pointerdown"); pointer("pointerup", { buttons: 0 }); h.click(lng, lat, overrides); };
-  const points = [[121.561, 25.0334], [121.562, 25.034]];
-  const query = h.plan(); h.queries[0].callback(h.result(points), "OK"); await query;
   const position = [...h.model.coordinates], rotations = h.model.rotations.length;
-  const line = [...h.lines.values()][0], markers = [...h.markers];
+  const markers = [...h.requestMarkers];
 
   select("origin");
   for (const [button, buttons] of [[1, 4], [2, 2]]) {
@@ -330,13 +200,13 @@ test("地圖選點切換及取消，只接受有效左鍵點擊，不改變既�
   select("origin"); h.nodes.get("window").handlers.keydown({ key: "Escape" });
   assert.equal(pressed("origin"), "false");
   h.click(122, 26);
-  assert.equal(h.ui("origin").value, "121.561, 25.0334");
+  assert.equal(h.ui("origin").value, "");
 
   select("origin");
   for (const overrides of [{ button: 1 }, { button: 2 }, { target: h.nodes.get("proj01-panel") }]) {
     click(122, 26, overrides);
     assert.equal(pressed("origin"), "true");
-    assert.equal(h.ui("origin").value, "121.561, 25.0334");
+    assert.equal(h.ui("origin").value, "");
   }
   for (const [lng, lat] of [[NaN, 25], [181, 25], [121, -91]]) {
     click(lng, lat);
@@ -360,13 +230,14 @@ test("地圖選點切換及取消，只接受有效左鍵點擊，不改變既�
     select("destination"); click(121.562 + repeat / 10000, 25.034);
     assert.equal(pressed("destination"), "false");
   }
-  assert.equal(h.queries.length, 1, "選點不自動規劃");
+  assert.equal(h.requestQueries.length, 3, "選點不新增或查詢需求");
+  assert.equal(h.requestList.requests.length, 3);
   assert.equal(h.model.playback, null);
   assert.deepEqual(h.model.coordinates, position);
   assert.equal(h.model.rotations.length, rotations);
-  assert.equal([...h.lines.values()][0], line);
-  assert.deepEqual(h.markers, markers);
-  assert.equal(h.markers.some((marker) => marker.removed), false);
+  assert.equal(h.lines.size, 0);
+  assert.deepEqual(h.requestMarkers, markers);
+  assert.equal(h.requestMarkers.some((marker) => marker.removed), false);
 });
 
 test("選點解除已鎖定及待鎖定跟隨，查詢或播放取消模式並禁止選點", async () => {
@@ -385,25 +256,19 @@ test("選點解除已鎖定及待鎖定跟隨，查詢或播放取消模式並�
     h.nodes.get("window").handlers.keydown({ key: "Escape" });
   }
   h.ui("select-origin").handlers.click();
-  const query = h.plan();
-  assert.equal(pressed(), "false");
-  assert.equal(h.ui("select-origin").disabled, true);
-  assert.equal(h.ui("select-destination").disabled, true);
-  h.ui("select-origin").handlers.click();
-  assert.equal(pressed(), "false");
-  h.queries[0].callback(h.result([[121.561, 25.0334], [121.562, 25.034]]), "OK"); await query;
-  assert.equal(h.ui("select-origin").disabled, false);
-  h.ui("select-origin").handlers.click(); h.ui("start").handlers.click();
+  selectRequest(h, "request-02"); h.ui("transport").handlers.click();
   assert.equal(pressed(), "false");
   assert.equal(h.ui("select-origin").disabled, true);
   h.ui("select-origin").handlers.click();
   assert.equal(pressed(), "false");
+  const request = h.requestList.requests[1];
+  h.queries[0].callback(h.result([[121.561, 25.0334], request.origin]), "OK"); await flushTask();
   assert.equal(h.model.playing, true);
-  h.model.playback.onEnd();
+  endSegment(h); endSegment(h);
   assert.equal(h.ui("select-origin").disabled, false);
 });
 
-test("合併座標輸入驗證後才送出查詢，比例只在套用時更新", async () => {
+test("合併座標輸入驗證後才新增需求，比例只在套用時更新", async () => {
   const h = await setup();
   const position = [...h.model.coordinates], rotations = h.model.rotations.length;
   h.ui("scale").value = "20";
@@ -420,24 +285,25 @@ test("合併座標輸入驗證後才送出查詢，比例只在套用時更新",
   assert.equal(h.model.rotations.length, rotations);
   for (const value of ["", " ", "121", ",25", "121,", "121,25,1", "NaN,25", "181,25", "121,91", "1e999,25"]) {
     h.ui("origin").value = value;
-    await h.plan();
-    assert.equal(h.queries.length, 0);
+    h.add();
+    assert.equal(h.requestList.requests.length, 3);
     assert.match(h.ui("error").textContent, /起點.*座標/);
   }
   h.ui("origin").value = " 121.561 , 25.0334 ";
   h.ui("destination").value = "121.562,25.034";
-  const query = h.plan();
-  assert.deepEqual(h.queries[0].options.origin, [121.561, 25.0334]);
-  assert.deepEqual(h.queries[0].options.destination, [121.562, 25.034]);
-  h.queries[0].callback(h.result([[121.561, 25.0334], [121.562, 25.034]]), "OK");
-  await query;
+  h.add(); await flushTask();
+  assert.equal(h.requestList.requests.length, 4);
+  assert.deepEqual(h.requestList.requests[3].origin, [121.561, 25.0334]);
+  assert.deepEqual(h.requestList.requests[3].destination, [121.562, 25.034]);
+  assert.deepEqual(h.model.coordinates, position);
+  selectRequest(h, "request-01");
   for (const value of ["", "0", "301", "NaN"]) {
     h.ui("duration").value = value;
-    h.ui("start").handlers.click();
+    h.ui("transport").handlers.click();
     assert.equal(h.model.playback, null);
   }
   h.ui("duration").value = "12";
-  h.ui("start").handlers.click();
+  h.ui("transport").handlers.click();
   assert.equal(h.model.playback.duration, 12000);
 });
 
@@ -446,13 +312,9 @@ test("需求選取與重繪保留唯一識別碼，不改變車輛、鏡頭或�
   const list = h.ui("request-list");
   const select = (id, checked = true) => list.handlers.change({ target: { type: "radio", name: "proj01-request", value: id, checked } });
   assert.equal(h.requestList.selectedRequestId, null);
-  const pending = h.plan();
-  select("request-02");
-  assert.equal(h.requestList.selectedRequestId, "request-02", "查詢時需求仍可操作");
-  h.queries[0].callback(h.result([[121.561, 25.0334], [121.562, 25.034]]), "OK");
-  await pending;
+  select("request-01");
   h.ui("follow").handlers.click(); h.frame();
-  h.ui("start").handlers.click(); h.frame();
+  h.ui("transport").handlers.click(); h.frame();
   const before = { origin: h.ui("origin").value, destination: h.ui("destination").value,
     position: [...h.model.coordinates], rotations: [...h.model.rotations], playback: h.model.playback,
     lines: [...h.lines], markers: [...h.markers], camera: { ...h.camera }, frames: [...h.frames] };
@@ -461,11 +323,11 @@ test("需求選取與重繪保留唯一識別碼，不改變車輛、鏡頭或�
   assert.equal(h.requestList.selectedRequestId, "request-01");
   h.requestList.render();
   assert.match(list.innerHTML, /value="request-01" checked/);
-  assert.equal((list.innerHTML.match(/ checked/g) ?? []).length, 1);
+  assert.equal((list.innerHTML.match(/type="radio"[^>]* checked/g) ?? []).length, 1);
   select("request-03"); h.requestList.render();
   assert.equal(h.requestList.selectedRequestId, "request-03");
   assert.match(list.innerHTML, /value="request-03" checked/);
-  assert.equal(h.queries.length, 1);
+  assert.equal(h.queries.length, 0);
   assert.equal(h.requestQueries.length, 3, "切換需求不重查道路路線");
   assert.equal(h.requestLines.size, 3);
   assert.equal(h.requestMarkers.filter(marker => !marker.removed).length, 6);
@@ -518,12 +380,10 @@ test("需求路線依序查詢，逾時與失敗獨立，選取及釋放不接�
   assert.equal(h.requestLines.get(id).width, 3);
   assert.equal(h.requestQueries.length, 3);
   assert.equal(h.timers.size, 0);
-  const planning = h.plan();
-  h.queries[0].callback(h.result([first.origin, first.destination]), "OK"); await planning;
-  h.ui("path").checked = false; h.ui("path").handlers.change();
-  h.ui("path").checked = true; h.ui("path").handlers.change();
-  assert.equal(h.requestLines.size, 1, "車輛路線切換保留需求圖層");
-  assert.equal(h.requestMarkers.filter(marker => !marker.removed).length, 6);
+  h.requestList.setRouteVisible(second.id, false);
+  assert.equal(h.requestLines.size, 0);
+  h.requestList.setRouteVisible(second.id, true);
+  assert.equal(h.requestLines.size, 1);
   h.requestMap.dispose(); h.requestMap.dispose();
   assert.equal(h.requestLines.size, 0);
   assert.equal(h.requestMarkers.filter(marker => !marker.removed).length, 0);
@@ -557,7 +417,7 @@ test("自動接送從當下位置選原始起點最近需求，鎖定後不換�
   assert.deepEqual([...h.queries[0].options.destination], h.requestList.requests[1].origin);
   assert.equal(h.ui("auto-transport").disabled, true);
   assert.equal(h.requestMarkers.slice(2, 4).every(marker => marker.options.icon.classList["proj01-request-selected"]), true);
-  assert.equal(h.ui("request-list").querySelector('input[value="request-02"]').checked, true);
+  assert.equal(h.ui("request-list").querySelector('input[type="radio"][value="request-02"]').checked, true);
   assert.equal(h.ui("request-list").innerHTML, html);
   selectRequest(h, "request-01");
   h.ui("transport").handlers.click(); h.ui("auto-transport").handlers.click();
@@ -634,7 +494,120 @@ const endSegment = (h, playback = h.model.playback) => {
   h.frame();
 };
 
-test("已在起點時略過接人，只服務保留需求，完成後不留下手動重播路線", async () => {
+test("新增驗證、座標副本與連點只建立一筆，保留選取、狀態與車位", async () => {
+  const h = await setup();
+  const [first, second] = h.requestList.requests;
+  h.requestList.selectById(second.id);
+  h.requestList.setRouteVisible(first.id, false);
+  h.requestList.setStatus(second.id, "completed");
+  const before = { position: [...h.model.coordinates], rotations: [...h.model.rotations], camera: { ...h.camera } };
+  h.ui("origin").value = h.ui("destination").value = "121.561, 25.0334";
+  h.add();
+  assert.match(h.ui("error").textContent, /不能相同/);
+  assert.equal(h.requestList.requests.length, 3);
+  h.ui("destination").value = "121.567, 25.034";
+  h.add(); h.add(); await flushTask();
+  assert.equal(h.requestList.requests.length, 4);
+  const added = h.requestList.requests[3];
+  assert.equal(added.id, "request-04");
+  assert.equal(added.routeVisible, true);
+  assert.equal(added.status, "pending");
+  assert.equal(h.ui("origin").value, "");
+  assert.equal(h.ui("destination").value, "");
+  assert.equal(h.requestList.selectedRequestId, second.id);
+  assert.equal(second.status, "completed");
+  assert.equal(first.routeVisible, false);
+  const origin = [121.543, 25.041], destination = [121.553, 25.045];
+  const copy = h.requestList.addRequest(origin, destination);
+  origin[0] = 0; destination[1] = 0;
+  assert.deepEqual(copy.origin, [121.543, 25.041]);
+  assert.deepEqual(copy.destination, [121.553, 25.045]);
+  assert.equal(copy.id, "request-05");
+  assert.notEqual(copy.color, added.color);
+  assert.deepEqual(h.model.coordinates, before.position);
+  assert.deepEqual(h.model.rotations, before.rotations);
+  assert.deepEqual(h.camera, before.camera);
+  assert.equal(h.model.playback, null);
+});
+
+test("初始化查詢中新增仍依序查一次，隱藏狀態及失敗保留，釋放後不再新增圖層", async () => {
+  const h = await setup({ manualRequests: true });
+  const fourth = h.requestList.addRequest([121.562, 25.034], [121.563, 25.035]);
+  h.requestList.setRouteVisible(fourth.id, false);
+  assert.equal(h.requestMarkers.length, 8);
+  assert.equal(h.requestQueries.length, 1);
+  for (let index = 0; index < 4; index++) {
+    const request = h.requestList.requests[index];
+    assert.equal(h.requestQueries.length, index + 1);
+    h.requestQueries[index].callback(h.result([request.origin, request.destination]), "OK");
+    await flushTask();
+  }
+  await h.requestMap.loading;
+  const id = `proj01-request-route-${fourth.id}`;
+  assert.equal(h.requestList.getRouteState(fourth.id).status, "ready");
+  assert.equal(h.requestLines.has(id), false, "查詢完成仍依目前 checkbox 隱藏");
+  h.requestList.selectById(fourth.id);
+  h.requestList.setStatus(fourth.id, "assigned");
+  assert.equal(h.requestLines.has(id), false, "選取及狀態不重開隱藏線");
+  const cached = h.requestList.getRouteState(fourth.id);
+  h.requestList.setRouteVisible(fourth.id, true);
+  assert.equal(h.requestLines.get(id).width, 7);
+  assert.equal(h.requestQueries.length, 4);
+  assert.equal(h.requestList.getRouteState(fourth.id), cached);
+  const fifth = h.requestList.addRequest([121.544, 25.04], [121.554, 25.045]);
+  assert.equal(h.requestQueries.length, 5, "佇列閒置後新增也會開始查詢");
+  h.requestQueries[4].callback([], "ERROR"); await h.requestMap.loading;
+  assert.equal(h.requestList.getRouteState(fifth.id).status, "error");
+  assert.equal(fifth.status, "pending");
+  assert.equal(h.requestMarkers.filter(marker => !marker.removed).length, 10);
+  assert.equal(h.requestLines.size, 4);
+  h.requestMap.dispose();
+  h.requestList.addRequest([121.545, 25.04], [121.555, 25.045]);
+  assert.equal(h.requestQueries.length, 5);
+  assert.equal(h.requestLines.size, 0);
+});
+
+test("接送中新增不換任務，每筆路線 checkbox 不改選取、快取或任務線", async () => {
+  const h = await setup();
+  selectRequest(h, "request-01");
+  h.ui("transport").handlers.click();
+  const playback = h.model.playback, current = [...h.model.coordinates], camera = { ...h.camera };
+  const line = [...h.lines.values()][0];
+  assert.equal(h.ui("origin").disabled, false);
+  assert.equal(h.ui("add-request").disabled, false);
+  assert.equal(h.ui("select-origin").disabled, true);
+  const id = "proj01-request-route-request-01";
+  const cached = h.requestList.getRouteState("request-01");
+  h.ui("request-list").handlers.change({ target: { type: "checkbox", name: "proj01-request-line", value: "request-01", checked: false } });
+  assert.equal(h.requestList.selectedRequestId, "request-01");
+  assert.equal(h.requestLines.has(id), false);
+  assert.equal(h.requestLines.size, 2);
+  h.ui("origin").value = "121.561, 25.0334";
+  h.ui("destination").value = "121.565, 25.035";
+  h.add(); await flushTask();
+  assert.equal(h.requestList.requests.length, 4);
+  assert.equal(h.model.playback, playback);
+  assert.deepEqual(h.model.coordinates, current);
+  assert.deepEqual(h.camera, camera);
+  assert.equal(h.requestList.requests[0].routeVisible, false);
+  assert.equal(h.requestList.requests[0].status, "onboard");
+  assert.equal(h.requestList.selectedRequestId, "request-01");
+  assert.equal([...h.lines.values()][0], line);
+  h.requestList.setRouteVisible("request-01", true);
+  assert.equal(h.requestLines.has(id), true);
+  assert.equal(h.requestList.getRouteState("request-01"), cached);
+  assert.equal(h.requestQueries.length, 4, "checkbox 與狀態更新不重查");
+  endSegment(h, playback);
+  assert.equal(h.requestList.requests[0].status, "completed");
+  assert.equal(h.requestList.requests[3].status, "pending");
+  // 新需求 ready 後可沿用同一接送入口；從目前車位查接人，而非新增時瞬移。
+  selectRequest(h, "request-04");
+  h.ui("transport").handlers.click();
+  assert.deepEqual([...h.queries[0].options.origin], [...playback.path.at(-1)].slice(0, 2));
+  h.disposeVehicle(); await flushTask();
+});
+
+test("已在起點時略過接人，只服務保留需求，完成後清除任務線", async () => {
   const h = await setup();
   assert.equal(h.ui("transport").disabled, true);
   selectRequest(h, "request-01");
@@ -650,12 +623,12 @@ test("已在起點時略過接人，只服務保留需求，完成後不留下�
   assert.equal(h.ui("vehicle-status").textContent, "送人中");
   h.ui("transport").handlers.click();
   selectRequest(h, "request-02");
-  await h.plan(); h.ui("start").handlers.click(); h.ui("select-origin").handlers.click();
+  h.ui("select-origin").handlers.click();
   assert.equal(h.model.playbacks.length, 1);
   assert.equal(h.queries.length, 0);
   assert.equal(h.ui("transport").disabled, true);
   assert.equal(h.ui("select-origin").attributes["aria-pressed"], "false");
-  for (const control of ["origin", "destination", "plan", "scale", "apply-scale", "duration", "start"]) assert.equal(h.ui(control).disabled, true);
+  for (const control of ["scale", "apply-scale", "duration"]) assert.equal(h.ui(control).disabled, true);
   endSegment(h, playback);
   playback.onEnd(); playback.onStart(); h.frame();
   assert.equal(h.requestList.requests[0].status, "completed");
@@ -664,7 +637,6 @@ test("已在起點時略過接人，只服務保留需求，完成後不留下�
   assert.deepEqual(h.model.coordinates, [...playback.path.at(-1)]);
   assert.equal(h.model.playbacks.length, 1);
   assert.equal(h.lines.size, 0);
-  assert.equal(h.ui("start").disabled, true, "任務路線不可變成 activePath");
   assert.equal(h.ui("transport").disabled, false, "可再服務另一筆");
   selectRequest(h, "request-01");
   assert.equal(h.ui("transport").disabled, true);
@@ -673,9 +645,8 @@ test("已在起點時略過接人，只服務保留需求，完成後不留下�
   assert.equal(h.requestLines.size, 3);
 });
 
-test("接人與送人依 onEnd 順序播放，分配總時間且保留手動與需求路線", async () => {
+test("接人與送人依 onEnd 順序播放，分配總時間且保留需求路線", async () => {
   const h = await setup();
-  const manual = h.plan(); h.queries[0].callback(h.result([[121.561, 25.0334], [121.562, 25.034]]), "OK"); await manual;
   const current = [121.53, 25.035, 0];
   h.model.coordinates = [...current];
   selectRequest(h, "request-02");
@@ -683,13 +654,13 @@ test("接人與送人依 onEnd 順序播放，分配總時間且保留手動與�
   h.ui("follow").handlers.click(); h.frame();
   const cached = h.requestList.getRouteState("request-02");
   h.ui("transport").handlers.click();
-  const request = h.queries[1];
+  const request = h.queries[0];
   assert.deepEqual(JSON.parse(JSON.stringify(request.options.origin)), current.slice(0, 2));
   assert.deepEqual([...request.options.destination], h.requestList.requests[1].origin);
   assert.equal(h.requestList.requests[1].status, "assigned");
   assert.equal(h.ui("vehicle-status").textContent, "準備接送");
   assert.equal(h.model.playbacks.length, 0);
-  for (const name of ["origin", "destination", "plan", "start", "select-origin", "select-destination", "scale", "duration"]) {
+  for (const name of ["select-origin", "select-destination", "scale", "duration"]) {
     assert.equal(h.ui(name).disabled, true, "準備查詢期間也須停用會干擾任務的控制項");
   }
   selectRequest(h, "request-03"); h.ui("transport").handlers.click();
@@ -732,12 +703,7 @@ test("接人與送人依 onEnd 順序播放，分配總時間且保留手動與�
   assert.equal(h.requestList.getRouteState("request-02"), cached);
   assert.equal(h.requestQueries.length, 3, "送人沿用快取");
   assert.equal(h.requestLines.size, 3);
-  assert.equal(h.markers.filter(marker => !marker.removed).length, 2);
-  assert.equal(h.lines.size, 1, "完成清除任務線，保留手動線");
-  h.ui("path").checked = false; h.ui("path").handlers.change();
-  assert.equal(h.requestLines.size, 3);
-  h.ui("start").handlers.click();
-  assert.equal(h.model.playback.path[0][0], 121.561, "手動重播仍使用原路線");
+  assert.equal(h.lines.size, 0, "完成僅清除任務線");
 });
 
 test("準備失敗與逾時回到 pending，位置不變，遲到及已釋放回呼失效", async () => {
@@ -791,7 +757,7 @@ test("動畫拒絕不能假裝完成或停止，上車狀態保留且等待有�
   assert.equal(h.model.playing, true);
   assert.match(h.ui("error").textContent, /未確認可用的公開停止介面/);
   assert.match(h.ui("vehicle-status").textContent, /等待動畫結束/);
-  selectRequest(h, "request-02"); h.ui("transport").handlers.click(); await h.plan(); h.ui("start").handlers.click();
+  selectRequest(h, "request-02"); h.ui("transport").handlers.click(); h.ui("auto-transport").handlers.click();
   assert.equal(h.ui("transport").disabled, true);
   assert.equal(h.queries.length, 0);
   assert.equal(h.model.playbacks.length, 1);
