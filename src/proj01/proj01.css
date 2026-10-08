@@ -70,6 +70,9 @@
   .proj01-layout #map { height: max(360px, 55dvh); }
 }
 .proj01-unit { align-self: center; white-space: nowrap; }
+.proj01-simulation-settings .proj01-input-row { align-items: center; }
+.proj01-panel input[type="range"] { width: 100%; min-width: 0; margin: 8px 0; accent-color: #175cd3; }
+.proj01-simulation-settings output { min-width: 4ch; text-align: right; font-variant-numeric: tabular-nums; }
 .proj01-panel label.proj01-section-title { margin-top: 16px; font-weight: bold; }
 .proj01-panel .proj01-request { display: grid; grid-template-columns: 14px minmax(0, 1fr); column-gap: 8px; row-gap: 3px; align-items: start; margin: 6px 0; padding: 8px; border: 1px solid #ccd4df; border-radius: 5px; }
 .proj01-request:has(input[type="radio"]:checked) { background: #edf4ff; border-color: #175cd3; box-shadow: inset 0 0 0 1px #175cd3; }

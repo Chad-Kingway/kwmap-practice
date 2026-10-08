@@ -52,10 +52,15 @@ test("無效接人時間不播放、不改位置，遲到回應不能啟動動�
   }
 });
 
-test("速度倍率邊界與小數依秒轉毫秒，略過接人不增加時間", async () => {
-  for (const multiplier of [1, 60, 300, 1.5]) {
+test("對數滑桿兩端與中段使用整數倍率，預設 60 倍，略過接人不增加時間", async () => {
+  for (const [position, multiplier] of [[0, 1], [100, 300], [50, 17], [null, 60]]) {
     const h = await setup();
-    selectRequest(h, "request-01"); h.ui("speed").value = String(multiplier);
+    selectRequest(h, "request-01");
+    if (position === null) {
+      assert.equal(Math.round(Math.exp(Number(h.ui("speed").value) / 100 * Math.log(300))), 60);
+    } else { h.ui("speed").value = String(position); h.ui("speed").handlers.input(); }
+    assert.equal(h.ui("speed-value").textContent, `${multiplier}×`);
+    assert.equal(h.ui("speed").attributes["aria-valuetext"], `${multiplier} 倍`);
     h.ui("transport").handlers.click();
     assert.equal(h.model.playback.duration, 600 * 1000 / multiplier);
     assert.equal(h.queries.length, 0);
@@ -445,13 +450,13 @@ test("合併座標輸入驗證後才新增需求，比例只在套用時更新",
   assert.deepEqual(h.requestList.requests[3].destination, [121.562, 25.034]);
   assert.deepEqual(h.model.coordinates, position);
   selectRequest(h, "request-01");
-  for (const value of ["", "0", "301", "NaN", "Infinity", "-1"]) {
+  for (const value of ["", "100.1", "NaN", "Infinity", "-1"]) {
     h.ui("speed").value = value;
     h.ui("transport").handlers.click();
     assert.equal(h.model.playback, null);
     assert.equal(h.requestList.requests[0].status, "pending");
   }
-  h.ui("speed").value = "12";
+  setSpeed(h, 12);
   h.ui("transport").handlers.click();
   assert.equal(h.model.playback.duration, 50000);
 });
@@ -588,6 +593,10 @@ test("需求路線依序查詢，逾時與失敗獨立，選取及釋放不接�
 });
 
 const flushTask = async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); };
+const setSpeed = (h, multiplier) => {
+  h.ui("speed").value = String(Math.log(multiplier) / Math.log(300) * 100);
+  h.ui("speed").handlers.input();
+};
 const selectRequest = (h, id) => h.ui("request-list").handlers.change({ target: { type: "radio", name: "proj01-request", value: id, checked: true } });
 
 test("自動接送從當下位置選原始起點最近需求，鎖定後不換單或失敗換下一筆", async () => {
@@ -799,7 +808,7 @@ test("已在起點時略過接人，只服務保留需求，完成後清除任�
   assert.equal(h.ui("transport").disabled, true);
   selectRequest(h, "request-01");
   assert.equal(h.ui("transport").disabled, false);
-  h.ui("speed").value = "12";
+  setSpeed(h, 12);
   const html = h.ui("request-list").innerHTML;
   h.ui("transport").handlers.click();
   const playback = h.model.playback;
@@ -837,7 +846,7 @@ test("接人與送人各用官方時間及開始時倍率，依 onEnd 播放且�
   const current = [121.53, 25.035, 0];
   h.model.coordinates = [...current];
   selectRequest(h, "request-02");
-  h.ui("speed").value = "60";
+  setSpeed(h, 60);
   h.ui("follow").handlers.click(); h.frame();
   const cached = h.requestList.getRouteState("request-02");
   h.ui("transport").handlers.click();
@@ -851,7 +860,7 @@ test("接人與送人各用官方時間及開始時倍率，依 onEnd 播放且�
     assert.equal(h.ui(name).disabled, true, "準備查詢期間也須停用會干擾任務的控制項");
   }
   selectRequest(h, "request-03"); h.ui("transport").handlers.click();
-  h.ui("speed").value = "300"; // 即使外部修改輸入，任務仍用開始時的 60 倍。
+  h.ui("speed").value = "100"; h.ui("speed").handlers.input(); // 忙碌時外部事件也不能改本次 60 倍。
   const pickupPoints = [current.slice(0, 2), [121.538, 25.04], h.requestList.requests[1].origin];
   // 模擬 SDK 調整查詢陣列順序；本次任務的 C、A 驗證基準仍須保持。
   request.options.origin.reverse(); request.options.destination.reverse();

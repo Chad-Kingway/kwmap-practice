@@ -91,8 +91,8 @@ export async function init() {
         <legend>模擬速度</legend>
         <label for="proj01-speed" class="proj01-visually-hidden">速度倍率</label>
         <div class="proj01-input-row">
-          <input id="proj01-speed" type="number" min="1" max="300" step="any" value="60" disabled>
-          <span class="proj01-unit">×</span>
+          <input id="proj01-speed" type="range" min="0" max="100" step="0.1" disabled>
+          <output id="proj01-speed-value" for="proj01-speed" class="proj01-unit">60×</output>
         </div>
       </fieldset>
       <fieldset class="proj01-requests">
@@ -144,11 +144,17 @@ export async function init() {
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });
   disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
-  const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "auto-transport", "vehicle-controls", "scale", "apply-scale", "speed", "follow", "locate", "origin", "destination", "add-request", "select-origin", "select-destination"]
+  const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "auto-transport", "vehicle-controls", "scale", "apply-scale", "speed", "speed-value", "follow", "locate", "origin", "destination", "add-request", "select-origin", "select-destination"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   const modelSettings = createModelSettings({ initialScale: MODEL_INITIAL_SCALE, redraw: () => map.redraw() });
-  const simulationSettings = { speedMultiplier: 60 };
+  const simulationSettings = { speedMultiplier: 60, sliderPosition: Math.log(60) / Math.log(300) * 100 };
+  const syncSpeed = () => {
+    ui["speed-value"].textContent = `${simulationSettings.speedMultiplier}×`;
+    ui.speed.setAttribute("aria-valuetext", `${simulationSettings.speedMultiplier} 倍`);
+  };
+  ui.speed.value = String(simulationSettings.sliderPosition);
+  syncSpeed();
   let model;
   let sdk;
   let directions;
@@ -395,11 +401,19 @@ export async function init() {
     modelSettings.apply(number(ui.scale));
   }));
   const readSpeedMultiplier = () => {
-    simulationSettings.speedMultiplier = number(ui.speed);
+    // 位置只用於輸入驗證，動畫讀取已保存的實際整數倍率。
+    number(ui.speed);
+    if (!Number.isInteger(simulationSettings.speedMultiplier) || simulationSettings.speedMultiplier < 1 || simulationSettings.speedMultiplier > 300) {
+      throw new Error("速度倍率須為 1～300 的整數。");
+    }
     return simulationSettings.speedMultiplier;
   };
-  ui.speed.addEventListener("change", action(() => {
-    if (modelSettings.canApply()) readSpeedMultiplier();
+  ui.speed.addEventListener("input", action(() => {
+    if (!modelSettings.canApply()) return;
+    const position = number(ui.speed);
+    simulationSettings.sliderPosition = position;
+    simulationSettings.speedMultiplier = Math.round(Math.exp(position / 100 * Math.log(300)));
+    syncSpeed();
   }));
   ui.follow.addEventListener("click", action(() => {
     if (wantsFollow || cameraLocked) return;
