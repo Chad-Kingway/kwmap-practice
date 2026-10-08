@@ -80,10 +80,6 @@ export async function init() {
       <h1>proj01：3D 模型與路徑實驗室</h1>
       <p id="proj01-status" role="status" aria-live="polite">正在檢查模型素材…</p>
       <p id="proj01-error" role="alert" hidden></p>
-      <fieldset class="proj01-map-display">
-        <legend>地圖顯示</legend>
-        <button id="proj01-poi-toggle" type="button" aria-pressed="false" disabled>隱藏地點圖標</button>
-      </fieldset>
       <fieldset class="proj01-model-settings">
         <legend>模型設定</legend>
         <label for="proj01-scale">模型比例</label>
@@ -125,7 +121,18 @@ export async function init() {
         </fieldset>
       </details>
     </aside>
-    <div id="map" aria-label="3D 地圖"></div>
+    <div class="proj01-map-region">
+      <div id="map" aria-label="3D 地圖"></div>
+      <div class="proj01-map-tools">
+        <button id="proj01-poi-toggle" class="proj01-map-tool" type="button" title="隱藏地點圖標" aria-label="隱藏地點圖標" aria-pressed="false" disabled>
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z" />
+            <circle cx="12" cy="10" r="2.5" />
+            <path class="proj01-poi-hidden-mark" d="m3 3 18 18" />
+          </svg>
+        </button>
+      </div>
+    </div>
     </div>
   `;
   const panel = document.getElementById("proj01-panel");

@@ -155,7 +155,8 @@ test("POI 切換立即呈現且與車輛獨立，樣式重載保留選擇，失�
   assert.equal(button.attributes["aria-pressed"], "false");
   const before = { position: [...h.model.coordinates], camera: { ...h.camera }, markers: [...h.requestMarkers], lines: [...h.requestLines] };
   toggle();
-  assert.equal(button.textContent, "顯示地點圖標");
+  assert.equal(button.attributes["aria-label"], "顯示地點圖標");
+  assert.equal(button.attributes.title, "顯示地點圖標");
   assert.equal(button.attributes["aria-pressed"], "true");
   for (const id of ["poi_shop", "poi_shop_name"]) assert.equal(h.renderedLayers.get(id), false);
   for (const id of ["txt_road_name", "other_symbol"]) assert.equal(h.renderedLayers.get(id), true);

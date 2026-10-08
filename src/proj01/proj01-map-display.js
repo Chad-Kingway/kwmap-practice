@@ -4,7 +4,9 @@ export function mountPoiToggle({ map, button, reportError }) {
   let disposed = false;
   const sync = () => {
     button.disabled = !styleReady || disposed;
-    button.textContent = poiHidden ? "顯示地點圖標" : "隱藏地點圖標";
+    const label = poiHidden ? "顯示地點圖標" : "隱藏地點圖標";
+    button.setAttribute("title", label);
+    button.setAttribute("aria-label", label);
     button.setAttribute("aria-pressed", String(poiHidden));
   };
   const apply = (hidden) => {
@@ -42,13 +44,17 @@ export function mountPoiToggle({ map, button, reportError }) {
     sync();
   };
   sync();
+  // 按鈕位於 SDK 容器之外；隔離其滾輪，避免跟隨模式的 window 監聽改變視角。
+  const stopWheel = (event) => event.stopPropagation();
   button.addEventListener("click", toggle);
+  button.addEventListener("wheel", stopWheel, { passive: true });
   map.on("dataloading", loading);
   map.on("style.load", loaded);
   if (map.isStyleLoaded() && !styleReady) loaded();
   return () => {
     disposed = true;
     button.removeEventListener("click", toggle);
+    button.removeEventListener("wheel", stopWheel);
     map.off("dataloading", loading);
     map.off("style.load", loaded);
     sync();

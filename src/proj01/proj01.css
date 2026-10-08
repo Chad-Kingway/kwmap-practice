@@ -11,6 +11,15 @@
   min-width: 0;
   min-height: 0;
 }
+.proj01-map-region { position: relative; min-width: 0; min-height: 0; }
+.proj01-map-tools { position: absolute; top: 12px; right: 12px; z-index: 2; padding: 6px; background: #fff; border-radius: 8px; box-shadow: 0 2px 8px #0003; }
+.proj01-map-tool { display: grid; place-items: center; width: 36px; height: 36px; padding: 0; border: 0; border-radius: 5px; background: #175cd3; color: #fff; cursor: pointer; }
+.proj01-map-tool[aria-pressed="true"] { background: #e2e8f0; color: #526075; }
+.proj01-poi-hidden-mark { display: none; }
+.proj01-map-tool[aria-pressed="true"] .proj01-poi-hidden-mark { display: block; }
+.proj01-map-tool:disabled { opacity: 0.45; cursor: default; }
+.proj01-map-tool:focus-visible { outline: 3px solid #ff7a18; outline-offset: 2px; }
+.proj01-map-tool:not(:disabled):hover { filter: brightness(0.9); }
 .proj01-panel {
   box-sizing: border-box;
   min-width: 0;
