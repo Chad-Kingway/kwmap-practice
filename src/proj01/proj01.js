@@ -8,6 +8,7 @@ import { mountRequestMap } from "./proj01-request-map.js";
 import { createTransport } from "./proj01-transport.js";
 import { createModelSettings } from "./proj01-model-settings.js";
 import { mountPoiToggle } from "./proj01-map-display.js";
+import { mountCompass } from "./proj01-compass.js";
 import { createSimulationClock } from "./proj01-clock.js";
 import { createPlayback } from "./proj01-playback.js";
 import { createFollowCamera } from "./proj01-camera.js";
@@ -32,6 +33,7 @@ let disposeTransport;
 let disposePlayback;
 let disposeRequestMap;
 let disposeMapDisplay;
+let disposeCompass;
 let requestMapVersion = 0;
 let disposePage;
 
@@ -75,6 +77,7 @@ export async function init() {
   disposeMapDrag?.();
   disposeMapPick?.();
   disposeMapDisplay?.();
+  disposeCompass?.();
   const requestMapRun = ++requestMapVersion;
   disposeRequestMap?.();
   disposeRequests?.();
@@ -143,6 +146,13 @@ export async function init() {
             <path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z" />
             <circle cx="12" cy="10" r="2.5" />
             <path class="proj01-poi-hidden-mark" d="m3 3 18 18" />
+          </svg>
+        </button>
+        <button id="proj01-compass" class="proj01-map-tool" type="button" title="回正北" aria-label="回正北" disabled>
+          <svg id="proj01-compass-needle" width="26" height="30" viewBox="0 0 26 30" aria-hidden="true" focusable="false">
+            <path d="M11 7V2l4 5V2" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" />
+            <path d="m13 9 5 10-5-2-5 2Z" fill="#ff6464" />
+            <path d="m13 27 5-8-5-2-5 2Z" fill="currentColor" />
           </svg>
         </button>
       </div>
@@ -489,7 +499,7 @@ export async function init() {
   const pageCleanup = () => {
     if (requestMapRun === requestMapVersion) requestMapVersion++;
     disposeTransport?.(); disposePlayback?.(); disposeMapDrag?.(); disposeMapPick?.();
-    disposeMapDisplay?.(); disposePanelWheel?.(); disposeRequestMap?.(); disposeRequests?.();
+    disposeMapDisplay?.(); disposeCompass?.(); disposePanelWheel?.(); disposeRequestMap?.(); disposeRequests?.();
   };
   window.addEventListener("pagehide", pageCleanup);
   disposePage = () => { window.removeEventListener("pagehide", pageCleanup); };
@@ -513,6 +523,8 @@ export async function init() {
     }), 45000, "地圖初始化逾時，請檢查網路、憑證與官方服務後重新整理。");
     if (requestMapRun !== requestMapVersion) return;
     disposeMapDisplay = mountPoiToggle({ map, button: document.getElementById("proj01-poi-toggle"), reportError: showError });
+    disposeCompass = mountCompass({ map, button: document.getElementById("proj01-compass"),
+      needle: document.getElementById("proj01-compass-needle"), beforeReset: releaseFollow, reportError: showError });
     await withTimeout(new Promise((resolve) => {
       let started = false;
       const loaded = () => {

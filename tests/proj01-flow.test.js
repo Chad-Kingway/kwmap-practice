@@ -8,6 +8,7 @@ import { createFollowCamera } from "../src/proj01/proj01-camera.js";
 import { distanceMeters } from "../src/proj01/proj01-transport.js";
 import { createModelSettings } from "../src/proj01/proj01-model-settings.js";
 import { mountPoiToggle } from "../src/proj01/proj01-map-display.js";
+import { mountCompass } from "../src/proj01/proj01-compass.js";
 import { mountRequestList } from "../src/proj01/proj01-requests.js";
 import { generateRandomEndpoints } from "../src/proj01/proj01-random-request.js";
 import { normalizeDirections, validateEndpoints, parseCoordinate, validCoordinate } from "../src/proj01/proj01-route.js";
@@ -90,7 +91,7 @@ async function setup({ manualRequests = false, random = Math.random } = {}) {
   const node = (id) => {
     if (!nodes.has(id)) nodes.set(id, {
       value: "", checked: true, disabled: false, hidden: true, textContent: "", handlers: {}, listeners: {}, attributes: {},
-      children: [], parentNode: null, open: false,
+      children: [], parentNode: null, open: false, style: {},
       get ownerDocument() { return { get activeElement() { return activeElement; } }; },
       get nextElementSibling() { const siblings = this.parentNode?.children ?? []; return siblings[siblings.indexOf(this) + 1] ?? null; },
       classList: { add() {}, remove() {} },
@@ -118,7 +119,7 @@ async function setup({ manualRequests = false, random = Math.random } = {}) {
       addEventListener(event, fn) {
         (this.listeners[event] ??= new Set()).add(fn);
         this.handlers[event] = (...args) => {
-          if (event === "click" && !args.length) args.push({ preventDefault() {} });
+          if (event === "click" && !args.length) args.push({ preventDefault() {}, stopPropagation() {} });
           let result;
           for (const listener of [...this.listeners[event]]) result = listener(...args);
           return result;
@@ -177,7 +178,11 @@ async function setup({ manualRequests = false, random = Math.random } = {}) {
       if (fragment === "poi_" && this.failPoi) { this.failPoi = false; throw new Error("圖層操作失敗"); }
       for (const id of layers.keys()) if (id.includes(fragment)) layers.set(id, visible);
     }
-    jumpTo(options) { camera.moves++; cameraTargets.push(options); Object.assign(cameraView, options); }
+    getMapView() { return { ...cameraView }; }
+    jumpTo(options) {
+      camera.moves++; cameraTargets.push(options); Object.assign(cameraView, options);
+      if ("bearing" in options) this.emit("rotate");
+    }
     redraw() {
       model.renderedScale = model.effectiveScale;
       for (const [id, visible] of layers) renderedLayers.set(id, visible);
@@ -215,7 +220,7 @@ async function setup({ manualRequests = false, random = Math.random } = {}) {
         },
       };
     },
-    mountPoiToggle, createModelSettings, normalizeDirections, validateEndpoints, parseCoordinate, validCoordinate, geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix,
+    mountCompass, mountPoiToggle, createModelSettings, normalizeDirections, validateEndpoints, parseCoordinate, validCoordinate, geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix,
     setTimeout: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => { const id = ++nextTimer; frames.set(id, fn); return id; }, cancelAnimationFrame: (id) => frames.delete(id),
   });
@@ -309,6 +314,30 @@ test("標題列跟隨取消 summary 切換，使用當下車位且不移動模�
   assert.equal(h.model.playbacks.length, 0);
   assert.equal(h.queries.length, 0);
   assert.equal(h.camera.locks, 1);
+  h.disposeVehicle();
+});
+
+test("指南針解除跟隨並保留視角、草稿及原接送，下一幀不覆蓋回正北", async () => {
+  const h = await setup();
+  selectRequest(h, "request-01");
+  h.ui("origin").value = "草稿起點"; h.ui("destination").value = "草稿終點";
+  h.ui("follow").handlers.click(); h.ui("transport").handlers.click(); h.frame(1000);
+  h.map.jumpTo({ bearing: 123, zoom: 19, pitch: 52 });
+  assert.equal(h.ui("compass-needle").style.transform, "rotate(-123deg)");
+  const before = { view: { ...h.cameraView }, position: [...h.model.coordinates], rotations: [...h.model.rotations],
+    playback: h.model.playback, lines: [...h.lines], requests: [...h.requestLines], selected: h.requestList.selectedRequestId };
+  h.ui("compass").handlers.click();
+  assert.deepEqual(h.cameraView, { ...before.view, bearing: 0 });
+  assert.equal(h.ui("follow").disabled, false);
+  assert.equal(h.camera.releases, 1);
+  assert.deepEqual(h.model.coordinates, before.position); assert.deepEqual(h.model.rotations, before.rotations);
+  assert.equal(h.model.playback, before.playback); assert.equal(h.model.playing, true);
+  assert.deepEqual([...h.lines], before.lines); assert.deepEqual([...h.requestLines], before.requests);
+  assert.equal(h.requestList.selectedRequestId, before.selected);
+  assert.equal(h.ui("origin").value, "草稿起點"); assert.equal(h.ui("destination").value, "草稿終點");
+  const moves = h.camera.moves; h.frame(1000);
+  assert.equal(h.camera.moves, moves); assert.equal(h.cameraView.bearing, 0);
+  assert.notDeepEqual(h.model.coordinates, before.position); assert.equal(h.model.playback, before.playback);
   h.disposeVehicle();
 });
 
