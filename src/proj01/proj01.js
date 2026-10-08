@@ -6,6 +6,7 @@ import { mountRequestList } from "./proj01-requests.js";
 import { mountRequestMap } from "./proj01-request-map.js";
 import { createTransport, distanceMeters, ROAD_SNAP_METERS } from "./proj01-transport.js";
 import { createModelSettings } from "./proj01-model-settings.js";
+import { mountPoiToggle } from "./proj01-map-display.js";
 import "./proj01.css";
 
 const MODEL_URL = "/models/car/scene.gltf";
@@ -25,6 +26,7 @@ let disposeRequests;
 let disposeTransport;
 let disposePlayback;
 let disposeRequestMap;
+let disposeMapDisplay;
 let requestMapVersion = 0;
 
 async function checkModelAssets() {
@@ -65,6 +67,7 @@ export async function init() {
   disposePanelWheel?.();
   disposeMapDrag?.();
   disposeMapPick?.();
+  disposeMapDisplay?.();
   const requestMapRun = ++requestMapVersion;
   disposeRequestMap?.();
   disposeRequests?.();
@@ -77,6 +80,10 @@ export async function init() {
       <h1>proj01：3D 模型與路徑實驗室</h1>
       <p id="proj01-status" role="status" aria-live="polite">正在檢查模型素材…</p>
       <p id="proj01-error" role="alert" hidden></p>
+      <fieldset class="proj01-map-display">
+        <legend>地圖顯示</legend>
+        <button id="proj01-poi-toggle" type="button" aria-pressed="false" disabled>隱藏地點圖標</button>
+      </fieldset>
       <fieldset class="proj01-model-settings">
         <legend>模型設定</legend>
         <label for="proj01-scale">模型比例</label>
@@ -537,14 +544,18 @@ export async function init() {
       // 官方公開選項：視窗及響應式分區尺寸改變時，由 SDK 更新地圖大小。
       trackResize: true,
     }), 45000, "地圖初始化逾時，請檢查網路、憑證與官方服務後重新整理。");
+    disposeMapDisplay = mountPoiToggle({ map, button: document.getElementById("proj01-poi-toggle"), reportError: showError });
     await withTimeout(new Promise((resolve) => {
       let started = false;
-      map.on("style.load", () => {
+      const loaded = () => {
         if (started) return;
         map.offLayer("base3d"); // 隱藏底圖的 3D 建築
         started = true;
+        map.off("style.load", loaded);
         resolve();
-      });
+      };
+      map.on("style.load", loaded);
+      if (map.isStyleLoaded()) loaded();
     }), 45000, "地圖樣式載入逾時，請檢查 Network、憑證與官方服務後重新整理。");
     status(`正在載入模型 ${MODEL_URL}…`);
     // 已查驗 mapThree 1.4.3 會提供此服務，直接使用目前地圖，不另外載入 mapPlus。

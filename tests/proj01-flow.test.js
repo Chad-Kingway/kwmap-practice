@@ -4,6 +4,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 import { distanceMeters } from "../src/proj01/proj01-transport.js";
 import { createModelSettings } from "../src/proj01/proj01-model-settings.js";
+import { mountPoiToggle } from "../src/proj01/proj01-map-display.js";
 import { mountRequestList } from "../src/proj01/proj01-requests.js";
 import { normalizeDirections, validateEndpoints, parseCoordinate, validCoordinate } from "../src/proj01/proj01-route.js";
 import { geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix } from "../src/proj01/proj01-heading.js";
@@ -14,6 +15,7 @@ async function setup({ manualRequests = false } = {}) {
   const camera = { locks: 0, releases: 0, moves: 0 };
   const cameraView = { zoom: 16, pitch: 40, bearing: 27, center: [121, 25] }, cameraTargets = [];
   const renderedLines = new Map();
+  const layers = new Map(["poi_shop", "poi_shop_name", "txt_road_name", "other_symbol"].map(id => [id, true])), renderedLayers = new Map();
   let instance;
   let requestList;
   let requestMap;
@@ -74,6 +76,7 @@ async function setup({ manualRequests = false } = {}) {
     static Marker = class { constructor(options) { this.options = options; this.removed = false; (options.icon.className === "proj01-request-marker" ? requestMarkers : markers).push(this); } remove() { this.removed = true; } };
     constructor() {
       instance = this;
+      this.events = new Map(); this.styleReady = true;
       this.three = {
         add3dModel: (options) => { model.creationOptions = options; return Promise.resolve(model); },
         add3dLine: (options) => (options.id.startsWith("proj01-request-route-") ? requestLines : lines).set(options.id, options),
@@ -82,11 +85,25 @@ async function setup({ manualRequests = false } = {}) {
         remove3dObject() { model.playing = false; },
       };
     }
-    on(event, callback) { if (event === "style.load") callback(); else this.click = callback; }
-    off(event, callback) { if (event === "click" && this.click === callback) this.click = null; }
-    offLayer() {} jumpTo(options) { camera.moves++; cameraTargets.push(options); Object.assign(cameraView, options); }
+    on(event, callback) {
+      if (!this.events.has(event)) this.events.set(event, new Set());
+      this.events.get(event).add(callback);
+      if (event === "style.load" && this.styleReady) callback();
+      if (event === "click") this.click = callback;
+    }
+    off(event, callback) { this.events.get(event)?.delete(callback); if (event === "click" && this.click === callback) this.click = null; }
+    emit(event, data = {}) { for (const callback of [...this.events.get(event) ?? []]) callback(data); }
+    isStyleLoaded() { return this.styleReady; }
+    offLayer(fragment) { this.setVisibility(fragment, false); }
+    onLayer(fragment) { this.setVisibility(fragment, true); }
+    setVisibility(fragment, visible) {
+      if (fragment === "poi_" && this.failPoi) { this.failPoi = false; throw new Error("圖層操作失敗"); }
+      for (const id of layers.keys()) if (id.includes(fragment)) layers.set(id, visible);
+    }
+    jumpTo(options) { camera.moves++; cameraTargets.push(options); Object.assign(cameraView, options); }
     redraw() {
       model.renderedScale = model.effectiveScale;
+      for (const [id, visible] of layers) renderedLayers.set(id, visible);
       renderedLines.clear();
       for (const [id, line] of lines) renderedLines.set(id, line);
     }
@@ -97,7 +114,7 @@ async function setup({ manualRequests = false } = {}) {
     fetch: async () => ({ ok: true, headers: { get: () => "model/gltf+json" }, json: async () => ({ asset: { version: "2.0" } }) }),
     AbortSignal, loadSdk: async () => SDK, accessKey: "測試", accessToken: "測試",
     mountRequestList: (container) => (requestList = mountRequestList(container)),
-    createModelSettings, normalizeDirections, validateEndpoints, parseCoordinate, validCoordinate, geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix,
+    mountPoiToggle, createModelSettings, normalizeDirections, validateEndpoints, parseCoordinate, validCoordinate, geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix,
     setTimeout: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => { const id = ++nextTimer; frames.set(id, fn); return id; }, cancelAnimationFrame: (id) => frames.delete(id),
   });
@@ -124,12 +141,47 @@ async function setup({ manualRequests = false } = {}) {
     start_location: { lng: points[0][0], lat: points[0][1] },
     end_location: { lng: points.at(-1)[0], lat: points.at(-1)[1] },
   }] }] }];
-  return { ui, nodes, timers, queries, markers, lines, renderedLines, model, result, camera, cameraView, cameraTargets, frames, requestList, requestMap, requestQueries, requestMarkers, requestLines,
+  return { ui, nodes, timers, queries, markers, lines, renderedLines, model, result, camera, cameraView, cameraTargets, frames, requestList, requestMap, requestQueries, requestMarkers, requestLines, map: instance, layers, renderedLayers,
+    disposeDisplay: () => vm.runInContext("disposeMapDisplay()", context),
     click: (lng, lat, overrides = {}) => instance.click({ lngLat: { lng, lat }, originalEvent: { button: 0, target: node("map"), ...overrides } }),
     frame: () => { const batch = [...frames.values()]; frames.clear(); for (const fn of batch) fn(); },
     disposeVehicle: () => vm.runInContext("disposeTransport(); disposePlayback();", context),
     add: () => ui("add-request").handlers.click() };
 }
+
+test("POI 切換立即呈現且與車輛獨立，樣式重載保留選擇，失敗與釋放不誤更新", async () => {
+  const h = await setup(), button = h.ui("poi-toggle");
+  const toggle = () => button.handlers.click();
+  assert.equal(button.attributes["aria-pressed"], "false");
+  const before = { position: [...h.model.coordinates], camera: { ...h.camera }, markers: [...h.requestMarkers], lines: [...h.requestLines] };
+  toggle();
+  assert.equal(button.textContent, "顯示地點圖標");
+  assert.equal(button.attributes["aria-pressed"], "true");
+  for (const id of ["poi_shop", "poi_shop_name"]) assert.equal(h.renderedLayers.get(id), false);
+  for (const id of ["txt_road_name", "other_symbol"]) assert.equal(h.renderedLayers.get(id), true);
+  assert.deepEqual(h.model.coordinates, before.position); assert.deepEqual(h.camera, before.camera);
+  assert.deepEqual(h.requestMarkers, before.markers); assert.deepEqual([...h.requestLines], before.lines);
+  h.map.styleReady = false; h.map.emit("dataloading", { dataType: "source" });
+  assert.equal(button.disabled, false, "來源瓦片載入不應停用圖層操作");
+  h.map.emit("dataloading", { dataType: "style" });
+  assert.equal(button.disabled, true); toggle();
+  assert.equal(button.attributes["aria-pressed"], "true");
+  for (const id of h.layers.keys()) h.layers.set(id, true);
+  h.map.styleReady = true; h.map.emit("style.load");
+  assert.equal(button.disabled, false); assert.equal(h.renderedLayers.get("poi_shop"), false);
+  h.map.failPoi = true; toggle();
+  assert.match(h.ui("error").textContent, /切換失敗/);
+  assert.equal(button.attributes["aria-pressed"], "true"); assert.equal(h.renderedLayers.get("poi_shop"), false);
+  h.ui("follow").handlers.click(); h.frame();
+  selectRequest(h, "request-01"); h.ui("transport").handlers.click();
+  const playback = h.model.playback;
+  toggle(); toggle(); toggle();
+  assert.equal(button.attributes["aria-pressed"], "false"); assert.equal(h.renderedLayers.get("poi_shop"), true);
+  assert.equal(h.model.playback, playback); assert.equal(h.model.playing, true);
+  const staleLoad = [...h.map.events.get("style.load")][0];
+  h.disposeDisplay(); h.layers.set("poi_shop", false); staleLoad(); h.map.emit("style.load");
+  assert.equal(button.disabled, true); assert.equal(h.layers.get("poi_shop"), false);
+});
 
 test("定位使用點擊當下車位，只改中心；跟隨與待鎖定時拒絕定位，解除後恢復", async () => {
   const h = await setup();
