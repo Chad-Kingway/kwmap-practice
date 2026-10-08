@@ -91,7 +91,7 @@ export async function init() {
         <legend>模擬速度</legend>
         <label for="proj01-speed" class="proj01-visually-hidden">速度倍率</label>
         <div class="proj01-input-row">
-          <input id="proj01-speed" type="range" min="0" max="100" step="0.1" disabled>
+          <input id="proj01-speed" type="range" min="1" max="300" step="1" value="60" disabled>
           <output id="proj01-speed-value" for="proj01-speed" class="proj01-unit">60×</output>
         </div>
       </fieldset>
@@ -148,12 +148,12 @@ export async function init() {
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   const modelSettings = createModelSettings({ initialScale: MODEL_INITIAL_SCALE, redraw: () => map.redraw() });
-  const simulationSettings = { speedMultiplier: 60, sliderPosition: Math.log(60) / Math.log(300) * 100 };
+  const simulationSettings = { speedMultiplier: 60 };
   const syncSpeed = () => {
     ui["speed-value"].textContent = `${simulationSettings.speedMultiplier}×`;
     ui.speed.setAttribute("aria-valuetext", `${simulationSettings.speedMultiplier} 倍`);
   };
-  ui.speed.value = String(simulationSettings.sliderPosition);
+  ui.speed.value = String(simulationSettings.speedMultiplier);
   syncSpeed();
   let model;
   let sdk;
@@ -400,19 +400,20 @@ export async function init() {
     if (!modelSettings.canApply()) return;
     modelSettings.apply(number(ui.scale));
   }));
-  const readSpeedMultiplier = () => {
-    // 位置只用於輸入驗證，動畫讀取已保存的實際整數倍率。
-    number(ui.speed);
-    if (!Number.isInteger(simulationSettings.speedMultiplier) || simulationSettings.speedMultiplier < 1 || simulationSettings.speedMultiplier > 300) {
+  const readSpeedInput = () => {
+    const value = number(ui.speed);
+    if (!Number.isInteger(value) || value < 1 || value > 300) {
       throw new Error("速度倍率須為 1～300 的整數。");
     }
+    return value;
+  };
+  const readSpeedMultiplier = () => {
+    readSpeedInput();
     return simulationSettings.speedMultiplier;
   };
   ui.speed.addEventListener("input", action(() => {
     if (!modelSettings.canApply()) return;
-    const position = number(ui.speed);
-    simulationSettings.sliderPosition = position;
-    simulationSettings.speedMultiplier = Math.round(Math.exp(position / 100 * Math.log(300)));
+    simulationSettings.speedMultiplier = readSpeedInput();
     syncSpeed();
   }));
   ui.follow.addEventListener("click", action(() => {

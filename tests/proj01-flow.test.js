@@ -52,13 +52,13 @@ test("無效接人時間不播放、不改位置，遲到回應不能啟動動�
   }
 });
 
-test("對數滑桿兩端與中段使用整數倍率，預設 60 倍，略過接人不增加時間", async () => {
-  for (const [position, multiplier] of [[0, 1], [100, 300], [50, 17], [null, 60]]) {
+test("線性滑桿直接使用整數倍率，預設 60 倍，略過接人不增加時間", async () => {
+  for (const [value, multiplier] of [[1, 1], [300, 300], [150, 150], [null, 60]]) {
     const h = await setup();
     selectRequest(h, "request-01");
-    if (position === null) {
-      assert.equal(Math.round(Math.exp(Number(h.ui("speed").value) / 100 * Math.log(300))), 60);
-    } else { h.ui("speed").value = String(position); h.ui("speed").handlers.input(); }
+    if (value === null) {
+      assert.equal(Number(h.ui("speed").value), 60);
+    } else { h.ui("speed").value = String(value); h.ui("speed").handlers.input(); }
     assert.equal(h.ui("speed-value").textContent, `${multiplier}×`);
     assert.equal(h.ui("speed").attributes["aria-valuetext"], `${multiplier} 倍`);
     h.ui("transport").handlers.click();
@@ -450,7 +450,7 @@ test("合併座標輸入驗證後才新增需求，比例只在套用時更新",
   assert.deepEqual(h.requestList.requests[3].destination, [121.562, 25.034]);
   assert.deepEqual(h.model.coordinates, position);
   selectRequest(h, "request-01");
-  for (const value of ["", "100.1", "NaN", "Infinity", "-1"]) {
+  for (const value of ["", "0", "301", "100.1", "NaN", "Infinity", "-1"]) {
     h.ui("speed").value = value;
     h.ui("transport").handlers.click();
     assert.equal(h.model.playback, null);
@@ -594,7 +594,7 @@ test("需求路線依序查詢，逾時與失敗獨立，選取及釋放不接�
 
 const flushTask = async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); };
 const setSpeed = (h, multiplier) => {
-  h.ui("speed").value = String(Math.log(multiplier) / Math.log(300) * 100);
+  h.ui("speed").value = String(multiplier);
   h.ui("speed").handlers.input();
 };
 const selectRequest = (h, id) => h.ui("request-list").handlers.change({ target: { type: "radio", name: "proj01-request", value: id, checked: true } });
