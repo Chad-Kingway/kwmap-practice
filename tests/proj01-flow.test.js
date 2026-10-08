@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
 import { distanceMeters } from "../src/proj01/proj01-transport.js";
+import { createModelSettings } from "../src/proj01/proj01-model-settings.js";
 import { mountRequestList } from "../src/proj01/proj01-requests.js";
 import { normalizeDirections, validateEndpoints, parseCoordinate, validCoordinate } from "../src/proj01/proj01-route.js";
 import { geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix } from "../src/proj01/proj01-heading.js";
@@ -55,7 +56,8 @@ async function setup({ manualRequests = false } = {}) {
     setCoordinates(point) { this.coordinates = [...point]; },
     setRotation(rotation) { assert.equal(this.playing, false, "播放時不能由手動旋轉干涉 SDK"); this.rotations.push({ ...rotation }); },
     scales: [],
-    setScale(scale) { this.scales.push(scale); },
+    effectiveScale: 10, renderedScale: 10,
+    setScale(scale) { this.scales.push(scale); this.effectiveScale = 10 * scale; },
     followPath(options) {
       const onEnd = options.onEnd;
       const playback = { ...options, onEnd: () => { if (this.playback === playback) this.playing = false; onEnd(); } };
@@ -83,6 +85,7 @@ async function setup({ manualRequests = false } = {}) {
     off(event, callback) { if (event === "click" && this.click === callback) this.click = null; }
     offLayer() {} jumpTo() { camera.moves++; }
     redraw() {
+      model.renderedScale = model.effectiveScale;
       renderedLines.clear();
       for (const [id, line] of lines) renderedLines.set(id, line);
     }
@@ -93,7 +96,7 @@ async function setup({ manualRequests = false } = {}) {
     fetch: async () => ({ ok: true, headers: { get: () => "model/gltf+json" }, json: async () => ({ asset: { version: "2.0" } }) }),
     AbortSignal, loadSdk: async () => SDK, accessKey: "測試", accessToken: "測試",
     mountRequestList: (container) => (requestList = mountRequestList(container)),
-    normalizeDirections, validateEndpoints, parseCoordinate, validCoordinate, geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix,
+    createModelSettings, normalizeDirections, validateEndpoints, parseCoordinate, validCoordinate, geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix,
     setTimeout: (fn, delay) => { const id = ++nextTimer; timers.set(id, { fn, delay }); return id; },
     clearTimeout: (id) => timers.delete(id), requestAnimationFrame: (fn) => { const id = ++nextTimer; frames.set(id, fn); return id; }, cancelAnimationFrame: (id) => frames.delete(id),
   });
@@ -275,6 +278,7 @@ test("合併座標輸入驗證後才新增需求，比例只在套用時更新",
   assert.deepEqual(h.model.scales, []);
   h.ui("apply-scale").handlers.click();
   assert.deepEqual(h.model.scales, [2]);
+  assert.equal(h.model.renderedScale, 20, "套用後無須操作鏡頭就呈現新比例");
   for (const value of ["", "0", "1001", "NaN"]) {
     h.ui("scale").value = value;
     h.ui("apply-scale").handlers.click();
@@ -305,6 +309,44 @@ test("合併座標輸入驗證後才新增需求，比例只在套用時更新",
   h.ui("duration").value = "12";
   h.ui("transport").handlers.click();
   assert.equal(h.model.playback.duration, 12000);
+});
+
+test("共用比例與輸入草稿分開，相同值不累乘，新登記模型繼承最後成功值", () => {
+  let redraws = 0;
+  const settings = createModelSettings({ initialScale: 10, redraw: () => redraws++ });
+  const first = { scale: 10, setScale(value) { this.scale = 10 * value; } };
+  settings.register({ id: "車輛 01", model: first, initialScale: 10, isBusy: () => false });
+  settings.apply(20); settings.apply(20); settings.apply(5);
+  assert.equal(first.scale, 5);
+  assert.equal(settings.appliedScale, 5);
+  const later = { scale: 2, setScale(value) { this.scale = 2 * value; } };
+  settings.register({ id: "模擬後續模型", model: later, initialScale: 2, isBusy: () => false });
+  assert.equal(later.scale, 5);
+  settings.apply(20);
+  assert.equal(first.scale, 20);
+  assert.equal(later.scale, 20);
+  assert.equal(redraws, 5);
+});
+
+test("任一模型忙碌或套用失敗不得宣稱全域成功，清理後不能操作", () => {
+  let busy = true, fail = false, renders = 0;
+  const settings = createModelSettings({ initialScale: 10, redraw: () => renders++ });
+  const first = { calls: 0, setScale() { this.calls++; } };
+  settings.register({ id: "車輛 01", model: first, initialScale: 10, isBusy: () => false });
+  settings.register({ id: "模擬後續模型", model: { setScale() { if (fail) throw new Error("比例拒絕"); } }, initialScale: 10, isBusy: () => busy });
+  assert.equal(settings.canApply(), false);
+  assert.throws(() => settings.apply(20), /接送中/);
+  assert.equal(first.calls, 0);
+  busy = false;
+  for (const value of [NaN, Infinity, 0, 1001]) assert.throws(() => settings.apply(value), /有效模型比例/);
+  settings.apply(20);
+  fail = true;
+  assert.throws(() => settings.apply(30), /未全部套用.*模擬後續模型.*比例拒絕/);
+  assert.equal(settings.appliedScale, 20);
+  assert.equal(renders, 2);
+  settings.clear();
+  assert.equal(settings.canApply(), false);
+  assert.throws(() => settings.apply(10), /尚未就緒/);
 });
 
 test("需求選取與重繪保留唯一識別碼，不改變車輛、鏡頭或路線", async () => {

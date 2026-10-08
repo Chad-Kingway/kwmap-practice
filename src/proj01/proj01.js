@@ -5,12 +5,14 @@ import { geographicBearing, initialPathBearing, modelRotationFromBearing, instal
 import { mountRequestList } from "./proj01-requests.js";
 import { mountRequestMap } from "./proj01-request-map.js";
 import { createTransport, distanceMeters, ROAD_SNAP_METERS } from "./proj01-transport.js";
+import { createModelSettings } from "./proj01-model-settings.js";
 import "./proj01.css";
 
 const MODEL_URL = "/models/car/scene.gltf";
 // 請不要改INITIAL_ROTATION
 const INITIAL_ROTATION = { x: 90, y: 180, z: 0 };
-const INITIAL = { scale: 10, duration: 10 };
+const MODEL_INITIAL_SCALE = 10;
+const INITIAL = { duration: 10 };
 const FOLLOW_CAMERA = { pitch: 65, zoom: 18 };
 const DEFAULT_ORIGIN = [121.561, 25.0334];
 // 已查驗 SDK 使用 CatmullRomCurve3；catmullrom 的零張力使每段幾何沿原線段，不切角。
@@ -75,6 +77,14 @@ export async function init() {
       <h1>proj01：3D 模型與路徑實驗室</h1>
       <p id="proj01-status" role="status" aria-live="polite">正在檢查模型素材…</p>
       <p id="proj01-error" role="alert" hidden></p>
+      <fieldset class="proj01-model-settings">
+        <legend>模型設定</legend>
+        <label for="proj01-scale">模型比例</label>
+        <div class="proj01-input-row">
+          <input id="proj01-scale" type="number" min="0.1" max="1000" step="0.1" value="${MODEL_INITIAL_SCALE}" disabled>
+          <button id="proj01-apply-scale" type="button" disabled>套用</button>
+        </div>
+      </fieldset>
       <fieldset class="proj01-requests">
         <legend>需求管理</legend>
         <div class="proj01-coordinate-row">
@@ -98,11 +108,6 @@ export async function init() {
           <button id="proj01-transport" type="button">接送此需求</button>
           <button id="proj01-auto-transport" type="button" title="依車輛與需求起點的直線距離選擇">自動接送一筆</button>
           <section class="proj01-vehicle-section">
-              <label for="proj01-scale" class="proj01-section-title">模型比例</label>
-              <div class="proj01-input-row">
-                <input id="proj01-scale" type="number" min="0.1" max="1000" step="0.1" value="${INITIAL.scale}">
-                <button id="proj01-apply-scale" type="button">套用</button>
-              </div>
               <label for="proj01-duration" class="proj01-section-title">接送展示時間</label>
               <div class="proj01-input-row">
                 <input id="proj01-duration" title="整筆接送任務的總展示時間（秒）" type="number" min="1" max="300" step="1" value="${INITIAL.duration}">
@@ -126,6 +131,7 @@ export async function init() {
   const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "auto-transport", "vehicle-controls", "scale", "apply-scale", "duration", "follow", "origin", "destination", "add-request", "select-origin", "select-destination"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
+  const modelSettings = createModelSettings({ initialScale: MODEL_INITIAL_SCALE, redraw: () => map.redraw() });
   let model;
   let sdk;
   let directions;
@@ -152,7 +158,8 @@ export async function init() {
   const syncControls = () => {
     // 需求草稿獨立於車輛停用範圍，接送期間仍可新增。
     ui["vehicle-controls"].disabled = !ready;
-    ui.scale.disabled = ui["apply-scale"].disabled = ui.duration.disabled = !ready || moving || transport?.busy;
+    ui.scale.disabled = ui["apply-scale"].disabled = !modelSettings.canApply();
+    ui.duration.disabled = !ready || moving || transport?.busy;
     ui.transport.disabled = !transport?.canStart();
     ui["auto-transport"].disabled = !transport?.canStartNearest();
     ui.follow.disabled = !ready || wantsFollow || cameraLocked;
@@ -366,8 +373,8 @@ export async function init() {
   });
 
   ui["apply-scale"].addEventListener("click", action(() => {
-    // SDK 以新增模型時的比例為基準，因此將 UI 的整體比例換成相對倍率。
-    if (!moving && !transport?.busy) model.setScale(number(ui.scale) / INITIAL.scale);
+    if (!modelSettings.canApply()) return;
+    modelSettings.apply(number(ui.scale));
   }));
   ui.follow.addEventListener("click", action(() => {
     if (wantsFollow || cameraLocked) return;
@@ -459,6 +466,7 @@ export async function init() {
   };
   disposePlayback = () => {
     cancelPlayback();
+    modelSettings.clear();
     if (model) map.three.remove3dObject(model);
   };
   const clearTaskLine = () => {
@@ -549,7 +557,7 @@ export async function init() {
     let expired = false;
     const loading = map.three.add3dModel({
       id: "proj01-model", obj: MODEL_URL, type: "gltf", coordinates: [...DEFAULT_ORIGIN, 0],
-      rotation: { ...INITIAL_ROTATION }, scale: INITIAL.scale, anchor: "bottom",
+      rotation: { ...INITIAL_ROTATION }, scale: MODEL_INITIAL_SCALE, anchor: "bottom",
     }).then((loaded) => {
       // 逾時後才到達的模型不啟用控制，避免畫面與載入狀態不一致。
       if (expired) map.three.remove3dObject(loaded);
@@ -563,6 +571,8 @@ export async function init() {
     }
     installSdkHeadingQuaternionFix(model);
     setBearing(0);
+    modelSettings.register({ id: "車輛 01", model, initialScale: MODEL_INITIAL_SCALE,
+      isBusy: () => !ready || moving || Boolean(transport?.busy) });
     ready = true;
     ui["vehicle-status"].textContent = "閒置";
     pickMap = map;
