@@ -542,6 +542,92 @@ test("需求路線依序查詢，逾時與失敗獨立，選取及釋放不接�
 
 const flushTask = async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); };
 const selectRequest = (h, id) => h.ui("request-list").handlers.change({ target: { type: "radio", name: "proj01-request", value: id, checked: true } });
+
+test("自動接送從當下位置選原始起點最近需求，鎖定後不換單或失敗換下一筆", async () => {
+  const h = await setup();
+  assert.equal(h.requestList.selectedRequestId, null);
+  assert.equal(h.ui("auto-transport").disabled, false);
+  h.model.coordinates = [121.542, 25.041, 0];
+  const position = [...h.model.coordinates];
+  const html = h.ui("request-list").innerHTML;
+  h.ui("auto-transport").handlers.click();
+  assert.equal(h.requestList.selectedRequestId, "request-02");
+  assert.equal(h.requestList.requests[1].status, "assigned");
+  assert.deepEqual([...h.queries[0].options.origin], position.slice(0, 2));
+  assert.deepEqual([...h.queries[0].options.destination], h.requestList.requests[1].origin);
+  assert.equal(h.ui("auto-transport").disabled, true);
+  assert.equal(h.requestMarkers.slice(2, 4).every(marker => marker.options.icon.classList["proj01-request-selected"]), true);
+  assert.equal(h.ui("request-list").querySelector('input[value="request-02"]').checked, true);
+  assert.equal(h.ui("request-list").innerHTML, html);
+  selectRequest(h, "request-01");
+  h.ui("transport").handlers.click(); h.ui("auto-transport").handlers.click();
+  assert.equal(h.queries.length, 1);
+  h.queries[0].callback([], "ERROR"); await flushTask();
+  assert.ok(h.requestList.requests.every(request => request.status === "pending"));
+  assert.deepEqual(h.model.coordinates, position);
+  assert.equal(h.queries.length, 1, "失敗不能自動換下一筆");
+  assert.equal(h.model.playback, null);
+  assert.equal(h.ui("auto-transport").disabled, false);
+  h.model.coordinates = [NaN, 25.041, 0];
+  h.ui("auto-transport").handlers.click(); await flushTask();
+  assert.match(h.ui("error").textContent, /有效.*座標/);
+  assert.ok(h.requestList.requests.every(request => request.status === "pending"));
+  assert.equal(h.queries.length, 1);
+  h.model.coordinates = [...position];
+  h.ui("auto-transport").handlers.click();
+  h.queries[1].callback(h.result([position.slice(0, 2), h.requestList.requests[1].origin]), "OK"); await flushTask();
+  endSegment(h, h.model.playback);
+  const dropoff = h.model.playback;
+  // onEnd 不代表座標一定正確；終點未到達時不得標完成或自動換下一筆。
+  dropoff.onEnd(); h.frame();
+  assert.equal(h.requestList.requests[1].status, "onboard");
+  assert.match(h.ui("error").textContent, /未到達預期終點/);
+  assert.equal(h.model.playbacks.length, 2);
+  assert.equal(h.queries.length, 2);
+});
+
+test("自動接送每次只執行一筆，完成後從新位置重新排序且排除不可用需求", async () => {
+  const h = await setup();
+  const [first, second, third] = h.requestList.requests;
+  // 第一筆送人道路終點接近第三筆，不能沿用初始車位挑第二筆。
+  h.requestList.setRouteState(first.id, { status: "ready", coordinates: [first.origin, third.origin] });
+  h.ui("auto-transport").handlers.click();
+  assert.equal(h.requestList.selectedRequestId, first.id);
+  assert.equal(h.queries.length, 0);
+  endSegment(h, h.model.playback);
+  assert.equal(first.status, "completed");
+  assert.equal(h.model.playbacks.length, 1, "完成不自動接下一筆");
+  h.ui("auto-transport").handlers.click();
+  assert.equal(h.requestList.selectedRequestId, third.id);
+  assert.equal(third.status, "onboard");
+  assert.equal(h.queries.length, 0, "在新起點附近略過接人");
+  h.ui("auto-transport").handlers.click(); h.ui("transport").handlers.click();
+  assert.equal(h.model.playbacks.length, 2);
+  endSegment(h, h.model.playback);
+  h.requestList.setRouteState(second.id, { status: "unavailable" });
+  assert.equal(h.ui("auto-transport").disabled, true);
+  h.ui("auto-transport").handlers.click();
+  assert.equal(h.model.playbacks.length, 2);
+  h.requestList.setRouteState(second.id, { status: "ready", coordinates: [second.origin, second.destination] });
+  assert.equal(h.ui("auto-transport").disabled, false, "目前選取已完成仍可自動接其他需求");
+  for (const status of ["assigned", "pickingUp", "onboard", "completed"]) {
+    h.requestList.setStatus(second.id, status);
+    assert.equal(h.ui("auto-transport").disabled, true);
+  }
+});
+
+test("同距離按清單順序選擇，不按終點或送人路線長度排序", async () => {
+  const h = await setup();
+  const [first, second, third] = h.requestList.requests;
+  first.origin = [...second.origin];
+  h.requestList.setRouteState(first.id, { status: "ready", coordinates: [first.origin, third.destination] });
+  h.requestList.setRouteState(third.id, { status: "loading" });
+  h.model.coordinates = [121.542, 25.041, 0];
+  h.ui("auto-transport").handlers.click();
+  assert.equal(h.requestList.selectedRequestId, first.id);
+  assert.equal(h.queries.length, 1);
+  h.disposeVehicle(); await flushTask();
+});
 const endSegment = (h, playback = h.model.playback) => {
   h.model.coordinates = [...playback.path.at(-1)];
   playback.onEnd();

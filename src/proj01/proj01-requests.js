@@ -24,18 +24,28 @@ export function mountRequestList(container) {
       </label>
     `).join("");
   };
+  const selectById = (id) => {
+    if (!requests.some((request) => request.id === id)) return;
+    if (selectedRequestId === id) return;
+    selectedRequestId = id;
+    // 只更新 checked，不重建 radio 或移動鍵盤焦點。
+    for (const request of requests) {
+      const radio = container.querySelector(`input[value="${request.id}"]`);
+      if (radio) radio.checked = request.id === id;
+    }
+    for (const listener of selectionListeners) listener(selectedRequestId);
+  };
   const select = (event) => {
     const input = event.target;
     if (input.type !== "radio" || input.name !== "proj01-request" || !input.checked
       || !requests.some((request) => request.id === input.value)) return;
-    if (selectedRequestId === input.value) return;
-    selectedRequestId = input.value;
-    for (const listener of selectionListeners) listener(selectedRequestId);
+    selectById(input.value);
   };
   render();
   container.addEventListener("change", select);
   return {
     requests,
+    selectById,
     get selectedRequestId() { return selectedRequestId; },
     getRouteState: (id) => routeStates.get(id),
     setStatus(id, status) {

@@ -29,9 +29,11 @@ export function createTransport({ requestList, isAvailable, getPosition, getDura
   let version = 0;
   let disposed = false;
   let cancelQuery;
-  const selected = () => requestList.requests.find((request) => request.id === requestList.selectedRequestId);
-  const canStart = () => !disposed && !task && isAvailable()
-    && selected()?.status === "pending" && requestList.getRouteState(selected().id)?.status === "ready";
+  const available = () => !disposed && !task && isAvailable();
+  const eligible = (request) => request?.status === "pending" && requestList.getRouteState(request.id)?.status === "ready";
+  const canStart = (id = requestList.selectedRequestId) => available()
+    && eligible(requestList.requests.find((request) => request.id === id));
+  const canStartNearest = () => available() && requestList.requests.some(eligible);
   const current = (job) => !disposed && task === job && job.id === version;
   const notify = (label) => changed(label);
   const clear = (job, label) => {
@@ -105,14 +107,24 @@ export function createTransport({ requestList, isAvailable, getPosition, getDura
       });
     } catch (error) { failure(job, error); }
   };
-  const start = async () => {
-    if (!canStart()) return;
+  const start = async (id = requestList.selectedRequestId, { nearest = false } = {}) => {
+    if (nearest ? !canStartNearest() : !canStart(id)) return;
     let job;
     try {
-      const request = selected();
-      const duration = getDuration();
       const origin = getPosition().slice(0, 2);
       if (!validCoordinate(origin)) throw new Error("車輛當下座標無效。");
+      let request = requestList.requests.find((item) => item.id === id);
+      if (nearest) {
+        let closest = Infinity;
+        for (const candidate of requestList.requests) {
+          if (!eligible(candidate)) continue;
+          const distance = distanceMeters(origin, candidate.origin);
+          // 嚴格小於保留同距離的清單先後順序；只比較原始起點直線距離。
+          if (distance < closest) { request = candidate; closest = distance; }
+        }
+      }
+      if (!eligible(request) || !available()) return;
+      const duration = getDuration();
       const dropoff = requestList.getRouteState(request.id).coordinates.map((point) => [...point]);
       const dropoffLength = pathLength(dropoff);
       job = { id: ++version, requestId: request.id, origin: [...request.origin], destination: [...request.destination],
@@ -120,6 +132,7 @@ export function createTransport({ requestList, isAvailable, getPosition, getDura
       // 同步保留需求與總時間，await 期間切換選取不能更換任務。
       task = job;
       requestList.setStatus(job.requestId, "assigned");
+      if (nearest) requestList.selectById(job.requestId);
       notify("準備接送");
       let pickup = null;
       if (distanceMeters(origin, job.origin) > PICKUP_NEAR_METERS && distanceMeters(origin, dropoff[0]) > PICKUP_NEAR_METERS) {
@@ -142,7 +155,8 @@ export function createTransport({ requestList, isAvailable, getPosition, getDura
     }
   };
   return {
-    canStart, start,
+    canStart, start, canStartNearest,
+    startNearest: () => start(undefined, { nearest: true }),
     get busy() { return task !== null; },
     dispose() {
       if (disposed) return;

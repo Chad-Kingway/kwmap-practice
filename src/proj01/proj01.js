@@ -87,6 +87,7 @@ export async function init() {
           <legend class="proj01-visually-hidden">車輛 01 設定</legend>
           <p id="proj01-vehicle-status" role="status" aria-live="polite">尚未就緒</p>
           <button id="proj01-transport" type="button">接送此需求</button>
+          <button id="proj01-auto-transport" type="button" title="依車輛與需求起點的直線距離選擇">自動接送一筆</button>
           <section id="proj01-route" class="proj01-vehicle-section" aria-labelledby="proj01-route-title">
             <h2 id="proj01-route-title" class="proj01-section-title">汽車路線規劃</h2>
             <div id="proj01-route-query" class="proj01-route-query">
@@ -129,7 +130,7 @@ export async function init() {
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });
   disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
-  const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "vehicle-controls", "scale", "apply-scale", "duration", "start", "path", "follow", "origin", "destination", "plan", "select-origin", "select-destination"]
+  const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "auto-transport", "vehicle-controls", "scale", "apply-scale", "duration", "start", "path", "follow", "origin", "destination", "plan", "select-origin", "select-destination"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   let map;
   let model;
@@ -170,6 +171,7 @@ export async function init() {
     }
     ui.start.disabled = !ready || moving || routing || transport?.busy || activePath.length < 2;
     ui.transport.disabled = !transport?.canStart();
+    ui["auto-transport"].disabled = !transport?.canStartNearest();
     ui.follow.disabled = !ready || wantsFollow || cameraLocked;
     for (const endpoint of ["origin", "destination"]) {
       ui[`select-${endpoint}`].disabled = !ready || moving || routing || transport?.busy || !directions;
@@ -589,6 +591,11 @@ export async function init() {
     if (!transport.canStart()) return;
     cancelPick();
     void transport.start();
+  }));
+  ui["auto-transport"].addEventListener("click", action(() => {
+    if (!transport.canStartNearest()) return;
+    cancelPick();
+    void transport.startNearest();
   }));
   ui.start.addEventListener("click", action(() => {
     if (moving || routing || transport.busy) return;
