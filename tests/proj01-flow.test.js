@@ -9,6 +9,7 @@ import { distanceMeters } from "../src/proj01/proj01-transport.js";
 import { createModelSettings } from "../src/proj01/proj01-model-settings.js";
 import { mountPoiToggle } from "../src/proj01/proj01-map-display.js";
 import { mountRequestList } from "../src/proj01/proj01-requests.js";
+import { generateRandomEndpoints } from "../src/proj01/proj01-random-request.js";
 import { normalizeDirections, validateEndpoints, parseCoordinate, validCoordinate } from "../src/proj01/proj01-route.js";
 import { geographicBearing, initialPathBearing, modelRotationFromBearing, installSdkHeadingQuaternionFix } from "../src/proj01/proj01-heading.js";
 
@@ -74,7 +75,7 @@ test("線性滑桿直接使用整數倍率，預設 60 倍，略過接人不增�
   }
 });
 
-async function setup({ manualRequests = false } = {}) {
+async function setup({ manualRequests = false, random = Math.random } = {}) {
   const nodes = new Map(), timers = new Map(), queries = [], markers = [], lines = new Map(), frames = new Map();
   const camera = { locks: 0, releases: 0, moves: 0 };
   const cameraView = { zoom: 16, pitch: 40, bearing: 27, center: [121, 25] }, cameraTargets = [];
@@ -170,6 +171,7 @@ async function setup({ manualRequests = false } = {}) {
     fetch: async () => ({ ok: true, headers: { get: () => "model/gltf+json" }, json: async () => ({ asset: { version: "2.0" } }) }),
     AbortSignal, loadSdk: async () => SDK, accessKey: "測試", accessToken: "測試",
     mountRequestList: (container) => (requestList = mountRequestList(container)),
+    generateRandomEndpoints: (options) => generateRandomEndpoints({ ...options, random }),
     createFollowCamera: (options) => {
       const cameraController = createFollowCamera(options);
       return { start(...args) { camera.locks++; cameraController.start(...args); }, update: cameraController.update,
@@ -604,6 +606,124 @@ test("需求路線依序查詢，逾時與失敗獨立，選取及釋放不接�
 });
 
 const flushTask = async () => { for (let i = 0; i < 4; i++) await Promise.resolve(); };
+
+const fixedRandom = () => {
+  let index = 0;
+  return () => [0.2, 0.3, 0.8, 0.7][index++ % 4];
+};
+
+test("隨機需求一次點擊只新增一筆，保留草稿、選取與鏡頭並沿用標記及路線快取", async () => {
+  const h = await setup({ random: fixedRandom() });
+  selectRequest(h, "request-02");
+  h.ui("origin").value = "手動起點草稿"; h.ui("destination").value = "手動終點草稿";
+  const before = { position: [...h.model.coordinates], camera: { ...h.camera }, queries: h.requestQueries.length };
+  h.ui("random-request").handlers.click();
+  assert.equal(h.requestList.requests.length, 4);
+  assert.equal(h.requestMarkers.length, 8, "立即附加起終點標記");
+  const added = h.requestList.requests[3];
+  assert.equal(added.id, "request-04");
+  assert.equal(added.color, "#7e22ce");
+  assert.equal(added.status, "pending");
+  assert.equal(h.requestQueries.length, before.queries + 1);
+  assert.deepEqual([...h.requestQueries[3].options.origin], added.origin);
+  assert.deepEqual([...h.requestQueries[3].options.destination], added.destination);
+  await h.requestMap.loading;
+  assert.equal(h.requestList.getRouteState(added.id).durationSeconds, 600);
+  assert.equal(h.requestLines.size, 4);
+  assert.equal(h.ui("origin").value, "手動起點草稿");
+  assert.equal(h.ui("destination").value, "手動終點草稿");
+  assert.equal(h.requestList.selectedRequestId, "request-02");
+  assert.deepEqual(h.model.coordinates, before.position);
+  assert.deepEqual(h.camera, before.camera);
+  assert.equal(h.model.playbacks.length, 0);
+  assert.equal(h.queries.length, 0);
+  h.disposeVehicle();
+});
+
+test("隨機抽樣 20 次失敗不新增、不查路線且保留草稿與選取", async () => {
+  let calls = 0;
+  const h = await setup({ random: () => { calls++; return 0.5; } });
+  selectRequest(h, "request-02");
+  h.ui("origin").value = "起點草稿"; h.ui("destination").value = "終點草稿";
+  h.ui("random-request").handlers.click();
+  assert.equal(calls, 80);
+  assert.equal(h.requestList.requests.length, 3);
+  assert.equal(h.requestQueries.length, 3);
+  assert.equal(h.requestMarkers.length, 6);
+  assert.match(h.ui("error").textContent, /無法產生隨機需求/);
+  assert.equal(h.ui("origin").value, "起點草稿");
+  assert.equal(h.ui("destination").value, "終點草稿");
+  assert.equal(h.requestList.selectedRequestId, "request-02");
+  h.disposeVehicle();
+});
+
+test("隨機需求沿用查詢佇列與接送資格，失敗不重抽，路線途中可超出矩形", async () => {
+  for (const mode of ["error", "invalid", "no-time", "valid"]) {
+    const h = await setup({ manualRequests: true, random: fixedRandom() });
+    h.ui("random-request").handlers.click();
+    const added = h.requestList.requests[3];
+    selectRequest(h, added.id);
+    assert.equal(h.requestQueries.length, 1, "隨機需求排在既有查詢之後");
+    assert.equal(h.requestMarkers.length, 8);
+    for (let i = 0; i < 3; i++) { h.requestQueries[i].callback([], "ERROR"); await flushTask(); }
+    assert.equal(h.requestQueries.length, 4);
+    assert.equal(h.ui("transport").disabled, true);
+    assert.equal(h.ui("auto-transport").disabled, true);
+    h.ui("transport").handlers.click(); h.ui("auto-transport").handlers.click();
+    assert.equal(h.queries.length, 0);
+    assert.equal(h.model.playbacks.length, 0);
+    const response = h.result([added.origin, [121.58, 25.07], added.destination]);
+    if (mode === "no-time") delete response[0].legs[0].duration;
+    if (mode === "invalid") response[0].legs[0].steps[0].polyline.points = JSON.stringify([[25, 121], [25.01, 121.01]]);
+    h.requestQueries[3].callback(mode === "error" ? [] : response, mode === "error" ? "ERROR" : "OK");
+    await h.requestMap.loading;
+    assert.equal(h.requestList.requests.length, 4);
+    assert.equal(h.requestQueries.length, 4, "不自動重抽或重新查詢");
+    assert.equal(added.status, "pending");
+    assert.equal(h.model.playbacks.length, 0, "查詢完成不自動接送");
+    if (mode === "valid") {
+      assert.equal(h.ui("transport").disabled, false);
+      assert.equal(h.ui("auto-transport").disabled, false);
+      assert.equal(h.requestLines.size, 1);
+      h.model.coordinates = [...added.origin, 0];
+      h.ui("transport").handlers.click();
+      assert.equal(h.model.playbacks.length, 1);
+    } else {
+      assert.equal(h.ui("transport").disabled, true);
+      assert.equal(h.ui("auto-transport").disabled, true);
+      h.ui("transport").handlers.click(); h.ui("auto-transport").handlers.click();
+      assert.equal(h.model.playbacks.length, 0);
+      assert.equal(h.requestLines.size, mode === "no-time" ? 1 : 0);
+      assert.ok(h.requestList.getRouteState(added.id).error);
+    }
+    h.disposeVehicle(); await flushTask();
+  }
+});
+
+test("接送與跟隨中生成隨機需求保留任務、位置、鏡頭及草稿", async () => {
+  const h = await setup({ random: fixedRandom() });
+  selectRequest(h, "request-01"); h.ui("follow").handlers.click();
+  h.ui("transport").handlers.click(); h.frame(1000);
+  h.ui("origin").value = "草稿";
+  const before = { playback: h.model.playback, position: [...h.model.coordinates], camera: { ...h.camera },
+    targets: [...h.cameraTargets], line: [...h.lines.values()][0], status: h.ui("status").textContent };
+  h.ui("random-request").handlers.click(); await h.requestMap.loading;
+  assert.equal(h.requestList.requests.length, 4);
+  assert.equal(h.requestList.requests[3].status, "pending");
+  assert.equal(h.requestList.requests[0].status, "onboard");
+  assert.equal(h.requestList.selectedRequestId, "request-01");
+  assert.equal(h.ui("origin").value, "草稿");
+  assert.equal(h.model.playback, before.playback);
+  assert.deepEqual(h.model.coordinates, before.position);
+  assert.deepEqual(h.camera, before.camera);
+  assert.deepEqual(h.cameraTargets, before.targets);
+  assert.equal([...h.lines.values()][0], before.line);
+  assert.equal(h.ui("status").textContent, before.status);
+  assert.equal(h.ui("follow").disabled, true);
+  h.frame(1000);
+  assert.notDeepEqual(h.model.coordinates, before.position, "原任務繼續移動");
+  h.disposeVehicle(); await flushTask();
+});
 const setSpeed = (h, multiplier) => {
   h.ui("speed").value = String(multiplier);
   h.ui("speed").handlers.input();

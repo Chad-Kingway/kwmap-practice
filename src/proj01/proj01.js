@@ -3,6 +3,7 @@ import { loadSdk } from "../sdk.js";
 import { validateEndpoints, parseCoordinate, validCoordinate } from "./proj01-route.js";
 import { modelRotationFromBearing } from "./proj01-heading.js";
 import { mountRequestList } from "./proj01-requests.js";
+import { generateRandomEndpoints } from "./proj01-random-request.js";
 import { mountRequestMap } from "./proj01-request-map.js";
 import { createTransport } from "./proj01-transport.js";
 import { createModelSettings } from "./proj01-model-settings.js";
@@ -18,6 +19,10 @@ const INITIAL_ROTATION = { x: 90, y: 180, z: 0 };
 const MODEL_INITIAL_SCALE = 10;
 const FOLLOW_CAMERA = { pitch: 65, zoom: 18 };
 const DEFAULT_ORIGIN = [121.561, 25.0334];
+const RANDOM_REQUEST_OPTIONS = {
+  range: { minLng: 121.5102, maxLng: 121.5693, minLat: 25.03068, maxLat: 25.06026 },
+  minDistanceMeters: 200, maxAttempts: 20,
+};
 const FOLLOW_DRAG_THRESHOLD = 5;
 let disposePanelWheel;
 let disposeMapDrag;
@@ -109,7 +114,10 @@ export async function init() {
             <input id="proj01-destination" type="text" placeholder="lng, lat"></div>
           <button id="proj01-select-destination" type="button" aria-pressed="false" disabled>選取終點</button>
         </div>
-        <button id="proj01-add-request" type="button">新增需求</button>
+        <div class="proj01-request-actions">
+          <button id="proj01-add-request" type="button">新增需求</button>
+          <button id="proj01-random-request" type="button">隨機需求</button>
+        </div>
         <div id="proj01-request-list"></div>
       </fieldset>
       <details class="proj01-vehicle" open>
@@ -327,6 +335,14 @@ export async function init() {
       ui.origin.value = ui.destination.value = "";
       cancelPick();
       // 接送中只附加需求，保留原本執行狀態、車位與鏡頭。
+      if (!transport?.busy) status(`已新增需求 ${request.id.slice("request-".length)}。`);
+    } catch (error) { showError(error); }
+  });
+  document.getElementById("proj01-random-request").addEventListener("click", () => {
+    clearError();
+    try {
+      const { origin, destination } = generateRandomEndpoints(RANDOM_REQUEST_OPTIONS);
+      const request = requestList.addRequest(origin, destination);
       if (!transport?.busy) status(`已新增需求 ${request.id.slice("request-".length)}。`);
     } catch (error) { showError(error); }
   });
