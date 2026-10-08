@@ -1,6 +1,6 @@
 # 專案規範
 - 這是 Vite + Vanilla JavaScript 的勤崴 3D Map SDK 練習專案。
-- 需要查閱勤崴 3D Map SDK API 時，請參考官方 API 文件：https://kw3dmap.localking.com.tw/3dmap/api/intro
+- SDK API 以勤崴官方文件（https://kw3dmap.localking.com.tw/3dmap/api/intro）為主要依據，可補充參考 MapLibre GL JS 與 Three.js 官方文件。
 - 頁面文字應保持精簡；可由介面、操作流程或元件狀態直接理解的資訊，不要另外加入重複說明。
 - `docs/` 保持少量文件，需要時才新增。
 - `docs/開發計畫.md` 應維持為目前狀態與後續開發規劃，不作為完整開發歷史；更新時應同步整理或移除已完成、已失效、已放棄或對後續開發無幫助的舊內容，避免只持續追加紀錄。
