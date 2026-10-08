@@ -126,15 +126,12 @@ export async function init() {
         <div id="proj01-request-list"></div>
       </fieldset>
       <details class="proj01-vehicle" open>
-        <summary class="proj01-vehicle-summary"><span>車輛 01</span><button id="proj01-locate" type="button" aria-label="定位車輛 01" disabled>定位</button></summary>
+        <summary class="proj01-vehicle-summary"><span>車輛 01</span><button id="proj01-follow" type="button" aria-label="跟隨車輛 01" disabled>跟隨</button></summary>
         <fieldset id="proj01-vehicle-controls" class="proj01-vehicle-controls" disabled>
           <legend class="proj01-visually-hidden">車輛 01 設定</legend>
           <p id="proj01-vehicle-status" role="status" aria-live="polite">尚未就緒</p>
           <button id="proj01-transport" type="button">接送此需求</button>
           <button id="proj01-auto-transport" type="button" title="依車輛與需求起點的直線距離選擇">自動接送一筆</button>
-          <section class="proj01-vehicle-section">
-              <button id="proj01-follow" type="button">鏡頭跟隨模型</button>
-          </section>
         </fieldset>
       </details>
     </aside>
@@ -159,7 +156,7 @@ export async function init() {
   const stopPanelWheel = (event) => event.stopPropagation();
   panel.addEventListener("wheel", stopPanelWheel, { passive: true });
   disposePanelWheel = () => panel.removeEventListener("wheel", stopPanelWheel);
-  const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "auto-transport", "vehicle-controls", "scale", "apply-scale", "speed", "speed-value", "follow", "locate", "origin", "destination", "add-request", "select-origin", "select-destination", "toggle-coordinates", "coordinate-inputs", "coordinate-preview", "origin-preview", "destination-preview"]
+  const ui = Object.fromEntries(["status", "error", "vehicle-status", "transport", "auto-transport", "vehicle-controls", "scale", "apply-scale", "speed", "speed-value", "follow", "origin", "destination", "add-request", "select-origin", "select-destination", "toggle-coordinates", "coordinate-inputs", "coordinate-preview", "origin-preview", "destination-preview"]
     .map((name) => [name, document.getElementById(`proj01-${name}`)]));
   const syncDraft = () => {
     for (const endpoint of ["origin", "destination"]) ui[`${endpoint}-preview`].textContent = ui[endpoint].value || "未設定";
@@ -212,7 +209,6 @@ export async function init() {
     ui.transport.disabled = !transport?.canStart();
     ui["auto-transport"].disabled = !transport?.canStartNearest();
     ui.follow.disabled = !ready || wantsFollow;
-    ui.locate.disabled = !ready || wantsFollow;
     for (const endpoint of ["origin", "destination"]) {
       ui[`select-${endpoint}`].disabled = !ready || moving || transport?.busy;
       ui[`select-${endpoint}`].setAttribute("aria-pressed", String(pickMode === endpoint));
@@ -394,19 +390,18 @@ export async function init() {
     simulationSettings.speedMultiplier = readSpeedInput();
     syncSpeed();
   }));
-  ui.follow.addEventListener("click", action(() => {
+  const followModel = action(() => {
     if (wantsFollow) return;
     cancelPick();
     wantsFollow = true;
     try { followCamera.start(currentPosition(), travelBearing); }
     catch (error) { wantsFollow = false; releaseLock(); throw error; }
     syncControls();
-  }));
-  ui.locate.addEventListener("click", (event) => {
+  });
+  ui.follow.addEventListener("click", (event) => {
     // 僅取消此按鈕點擊的 summary 預設切換，保留原生按鈕鍵盤啟動。
     event.preventDefault();
-    if (!ready || wantsFollow) return;
-    action(() => map.jumpTo({ center: currentPosition().slice(0, 2) }))();
+    followModel();
   });
   const cancelPlayback = () => {
     playback?.cancel();

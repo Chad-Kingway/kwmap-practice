@@ -57,7 +57,6 @@
 .proj01-panel .proj01-global-row label { margin: 0; white-space: nowrap; }
 .proj01-panel .proj01-global-row button { width: auto; margin: 0; padding: 9px 6px; white-space: nowrap; font-size: 12px; }
 .proj01-panel .proj01-vehicle-controls { margin: 0; border: 0; }
-.proj01-vehicle-section + .proj01-vehicle-section { margin-top: 18px; padding-top: 14px; border-top: 1px solid #e2e8f0; }
 .proj01-section-title { margin: 0 0 8px; font-size: 14px; }
 .proj01-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .proj01-input-row {

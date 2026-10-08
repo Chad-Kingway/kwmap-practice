@@ -101,6 +101,7 @@ async function setup({ manualRequests = false, random = Math.random } = {}) {
       addEventListener(event, fn) {
         (this.listeners[event] ??= new Set()).add(fn);
         this.handlers[event] = (...args) => {
+          if (event === "click" && !args.length) args.push({ preventDefault() {} });
           let result;
           for (const listener of [...this.listeners[event]]) result = listener(...args);
           return result;
@@ -268,38 +269,30 @@ test("POI 切換立即呈現且與車輛獨立，樣式重載保留選擇，失�
   assert.equal(button.disabled, true); assert.equal(h.layers.get("poi_shop"), false);
 });
 
-test("定位使用點擊當下車位，只改中心；跟隨時拒絕定位，解除後恢復", async () => {
+test("標題列跟隨取消 summary 切換，使用當下車位且不移動模型，無效座標不啟動", async () => {
   const h = await setup();
-  const locate = () => h.ui("locate").handlers.click({ preventDefault() {} });
-  h.model.coordinates = [121.57, 25.04, 0];
-  locate();
-  assert.deepEqual(Array.from(h.cameraView.center), [121.57, 25.04]);
-  assert.equal(h.cameraView.zoom, 16); assert.equal(h.cameraView.pitch, 40); assert.equal(h.cameraView.bearing, 27);
-  assert.equal(h.camera.locks, 0);
-  assert.deepEqual(h.model.coordinates, [121.57, 25.04, 0]);
+  let prevented = 0;
+  const follow = () => h.ui("follow").handlers.click({ preventDefault() { prevented++; } });
   h.model.coordinates = [NaN, 25, 0];
-  locate();
-  assert.equal(h.camera.moves, 1);
+  follow();
+  assert.equal(prevented, 1);
+  assert.equal(h.camera.moves, 0);
+  assert.equal(h.ui("follow").disabled, false);
   assert.match(h.ui("error").textContent, /有效座標/);
-  h.model.coordinates = [121.561, 25.0334, 0];
-  h.ui("follow").handlers.click();
-  assert.equal(h.ui("locate").disabled, true);
-  const beforeFollowLocate = h.camera.moves; locate(); assert.equal(h.camera.moves, beforeFollowLocate);
-  h.frame();
+  h.model.coordinates = [121.57, 25.04, 0];
+  follow();
+  assert.equal(prevented, 2);
+  assert.deepEqual(Array.from(h.cameraView.center), [121.57, 25.04]);
+  assert.equal(h.cameraView.zoom, 18); assert.equal(h.cameraView.pitch, 65);
+  assert.deepEqual(h.model.coordinates, [121.57, 25.04, 0]);
+  assert.equal(h.ui("follow").disabled, true);
   const moves = h.camera.moves;
-  locate(); assert.equal(h.camera.moves, moves);
+  follow(); assert.equal(h.camera.moves, moves);
   assert.equal(h.camera.releases, 0);
-  const map = h.nodes.get("map");
-  map.handlers.pointerdown({ pointerType: "mouse", pointerId: 1, button: 0, buttons: 1, clientX: 0, clientY: 0 });
-  map.handlers.pointermove({ pointerId: 1, buttons: 1, clientX: 10, clientY: 0 });
-  assert.equal(h.ui("locate").disabled, false);
-  selectRequest(h, "request-01"); h.ui("transport").handlers.click();
-  const playback = h.model.playback;
-  h.model.coordinates = [121.563, 25.034, 0];
-  locate();
-  assert.deepEqual(Array.from(h.cameraView.center), [121.563, 25.034]);
-  assert.equal(h.model.playback, playback); assert.equal(h.model.playing, true);
+  assert.equal(h.model.playbacks.length, 0);
+  assert.equal(h.queries.length, 0);
   assert.equal(h.camera.locks, 1);
+  h.disposeVehicle();
 });
 
 test("地圖左鍵拖曳解除跟隨且不中斷播放", async () => {
